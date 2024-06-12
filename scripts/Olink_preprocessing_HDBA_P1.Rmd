@@ -1,0 +1,372 @@
+---
+title: "Human Disease Blood Atlas Olink Data Quality Control"
+author: "María Bueno Álvez & Linn Fagerberg"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    keep_md: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r, include=FALSE}
+# Load packages
+library("tidyverse") 
+library("patchwork")
+library("ggrepel")
+library("ggbeeswarm")
+library("viridis")
+library("GGally")
+source("scripts/themes_palettes.R")
+source("scripts/functions_utility.R")
+
+# Load data (raw Olink data and processed metadata file - output from O_DA_Preprocessing.R)
+data_NPX <- readr::read_delim("data/UD-2950_B1-B4_NPX_2023-03-29/UD-2950_B1-B4_NPX_2023-03-29.csv", delim = ";")
+warehouse_meta_raw <- readxl::read_excel("data/samples_2024-04-19.xlsx")
+```
+
+# Merge to metadata
+
+First, we modify the IDs in the Olink file to match the metadata. 
+
+```{r, warning=FALSE}
+olink_mapping_id <- 
+  warehouse_meta_raw |>  
+  select(`Vial barcode`, DAid, Cohort, Class, Disease, Subcategory) |>  
+  mutate(SampleID_Original = ifelse(Cohort == "UCAN", `Vial barcode`, DAid)) |>  
+  select(SampleID_Original, Cohort, Class, Disease, Subcategory, DAid, SampleID = `Vial barcode`) |>  
+  distinct()
+
+data_NPX <-
+  data_NPX |>  
+  mutate(SampleIDOlink = SampleID) |> 
+  select(-SampleID)
+
+#Combine the classification of diseases into the NPX-file  (one-to-many relationship)
+data_NPX_cohort <- 
+  data_NPX |>  
+  left_join(olink_mapping_id |> 
+              select(SampleID_Original, DAid, SampleID, Cohort, Class, Disease, Subcategory), by = "SampleID_Original")
+
+#write_csv(data_NPX_cohort, "data/processed/final_data/data_NPX_cohort.csv")
+```
+
+Look at samples in the Olink data that do not map the metadata.
+
+```{r, warning=FALSE}
+not_mapped <- 
+  data_NPX_cohort |>
+  filter(is.na(DAid)) |>
+  distinct(SampleIDOlink) |>
+  filter(!grepl("Patient", SampleIDOlink),
+         !grepl("CONTROL", SampleIDOlink),
+         !grepl("Prov", SampleIDOlink),
+         !grepl("Control", SampleIDOlink)) 
+
+controls <- 
+  data_NPX_cohort |>
+  distinct(SampleIDOlink) |>
+  filter(grepl("Patient", SampleIDOlink) |
+         grepl("CONTROL", SampleIDOlink) |
+         grepl("Prov", SampleIDOlink) |
+         grepl("Control", SampleIDOlink)) 
+
+not_mapped_controls<-
+  data_NPX_cohort |> 
+  filter(is.na(DAid)) |> 
+  distinct(SampleIDOlink)
+
+data_NPX_controls <-
+  data_NPX_cohort |>  
+  filter(is.na(DAid))
+
+data_NPX_controls <-
+  data_NPX_cohort |>  
+  filter(SampleIDOlink %in% controls$SampleIDOlink)|> 
+  select(-DAid, -Disease, -Class, -Subcategory, -SampleID, -Cohort)
+
+data_NPX_cohort <-
+  data_NPX_cohort |>  
+  filter(!is.na(DAid)) |> 
+  select(-SampleIDOlink, -Disease, -Class, -Subcategory, -SampleID, -Cohort)
+
+# #For some unknown reason, 11 samples do not map
+warehouse_meta_raw |>
+  filter(!DAid %in% data_NPX_cohort$DAid) |> 
+  count(Cohort)
+
+# not.found <-
+#   da_info |>  
+#   filter(DAid %in% da_info$DAid[which(!da_info$DAid %in% unique(data_NPX_cohort$DAid))])
+
+# 292 DAids in controls, but not in manifest
+# data_NPX_controls |>
+#   distinct(SampleIDOlink) |> 
+#   filter(grepl("DA", SampleIDOlink)) |> 
+#   left_join(da_info, by = c("SampleIDOlink" = "DAid")) |> 
+#   filter(is.na(Disease))
+# 
+# da_info |> filter(DAid %in% unique(data_NPX_controls$DAid))
+
+#write_csv(data_NPX_controls, "data/processed/final_data/data_NPX_controls.csv")
+```
+
+There are **`r length(unique(data_NPX_cohort$DAid))` samples in the data**.
+
+- **Batch 1** includes cancer samples (U-CAN) and healthy samples (EpiHealth)
+- **Batch 2** consists of cardiovascular (SCAPIS & IGT) cohorts, as well as infectious diseases
+- **Batch 3** contains more cardiovascular samples, autoimmune diseases, additional cancers, and additional infectious and healthy samples, as well as neuro and pediatric samples
+- Finally, **batch 4** includes mostly cancer and healthy samples
+
+# Duplicated samples
+
+Five samples were run twice due to several QC problems. We remove the first run for these samples.
+
+```{r, warning=FALSE}
+data_NPX_cohort<-
+  data_NPX_cohort|> 
+  filter(!(SampleID_Original == 4013471280 & PlateID == 'Run6')) |> 
+  filter(!(SampleID_Original == 30062230 & PlateID == 'Run12')) |> 
+  filter(!(SampleID_Original == 4012786767 & PlateID == 'Run18')) |> 
+  filter(!(SampleID_Original == 4000780068 & PlateID == 'Run19')) |> 
+  filter(!(SampleID_Original == 4015121413 & PlateID == 'Run3'))
+```
+
+
+# QC Warnings
+
+Look at the number of warnings per sample and assay.
+
+```{r, warning=FALSE}
+num_warning_sample <-
+  data_NPX_cohort |>  
+  filter(QC_Warning != 'PASS')  |>  
+  group_by(DAid) |> 
+  summarize(num_flagged = n()) |>  
+  arrange(desc(num_flagged)) |>  
+  mutate(fraction_flagged = num_flagged / nrow(data_NPX_cohort |> distinct(OlinkID)))|> 
+  arrange(desc(num_flagged)) 
+
+# Find samples with 50% or more warnings
+high_warning_sample <-
+  num_warning_sample |> 
+  filter(fraction_flagged > 0.5)
+
+# warning_samples_top_info <-
+#   high_warning_sample |> 
+#   left_join(warehouse_meta_raw, by='DAid') |> 
+#   left_join(data_NPX_cohort, by = join_by(DAid, Cohort, Class, Disease, Subcategory)) |>  
+#   distinct(DAid, num_flagged,fraction_flagged, PlateID, Cohort, Class, Disease) 
+
+num_warning_sample |> 
+  left_join(warehouse_meta_raw, by='DAid') |> 
+  ggplot(aes("Sample", fraction_flagged, label = DAid, color = Class)) +
+  geom_beeswarm() +
+  geom_hline(yintercept = 0.5, linetype = 'dotted', col = 'grey')+
+  scale_color_manual(values = pal_class) +
+  theme_hpa() +
+  xlab("") +
+  ggtitle("Fraction of warnings per sample")
+```
+
+There are **`r nrow(high_warning_sample)` samples with > 50% QC warnings**, we remove these samples from the data.
+
+We remove all data points with QC warnings.
+
+```{r, warning=FALSE}
+data_NPX_cohort_rem_no_warn <-
+  data_NPX_cohort_rem |> 
+  filter(!QC_Warning %in% c("WARN", "MANUAL_WARN"))
+```
+
+After filtering, **`r length(unique(data_NPX_cohort_rem_no_warn$DAid))` samples** remain in the data.
+
+
+```{r, warning=FALSE}
+num_warning_assay <-
+  data_NPX_cohort |>  
+  filter(QC_Warning == 'WARN')  |>  
+  group_by(Assay) |> 
+  summarize(num_flagged = n()) |>  
+  arrange(desc(num_flagged)) |>  
+  mutate(fraction_flagged = num_flagged / nrow(data_NPX_cohort |> distinct(Assay)))|> 
+  arrange(desc(num_flagged)) 
+
+num_warning_assay |> 
+  ggplot(aes("Assay", fraction_flagged, label = Assay, color = fraction_flagged)) +
+  geom_beeswarm() +
+  geom_text_repel() +
+  scale_color_viridis() +
+  theme_hpa() +
+  xlab("") +
+  ggtitle("Fraction of warnings per assay")
+```
+
+All proteins (except TNF, IL6 and CXCL8 - replicate proteins) have < 5% of samples with QC warnings.
+
+# Replicate samples
+
+There are 30 bridging samples that are run between batch 3 and 4. We exclude them from the data. 
+
+```{r, warning=FALSE}
+num_DAids_in_data <- 
+  data_NPX_cohort_rem_no_warn |> 
+  filter(Assay == "LEP") |> 
+  distinct(OlinkID, NPX, DAid, Panel, Assay, PlateID) |>  
+  group_by(DAid) |>  
+  count()
+
+multiple_samples <-
+  num_DAids_in_data |>  
+  filter(n > 1) |>  
+  pull(DAid)
+
+multiple_samples_info <- 
+  warehouse_meta_raw |>
+  filter(DAid %in% multiple_samples) |> 
+  left_join(data_NPX_cohort_rem_no_warn |>
+  filter(DAid %in% multiple_samples) |>
+  distinct(DAid, BatchID, PlateID), by = "DAid") |> 
+  select(DAid, Cohort, BatchID, Class, Disease, Age, Sex, BMI)
+
+# Remove the ones with the largest PlateId for these samples 
+for(sample in multiple_samples) {
+  
+  plates <-
+    data_NPX_cohort_rem_no_warn |>  
+    filter(DAid %in% sample) |>  
+    distinct(PlateID) |>  
+    arrange(PlateID) |>  
+    pull()
+  
+  max_plate <- plates[2]
+  
+  data_NPX_cohort_rem_no_warn <-
+    data_NPX_cohort_rem_no_warn |> 
+    filter(!(DAid == sample & PlateID == max_plate))
+  
+}
+```
+
+
+# Replicate proteins 
+
+We select one measurement for of the three replicated proteins (TNF, IL6 and CXCL8) based on the mean NPX.
+
+```{r, warning=FALSE, message=FALSE}
+replicate_protein_rem_OlinkID <-
+  data_NPX_cohort_rem_no_warn |> 
+  group_by(OlinkID, Assay) |> 
+  summarise(mean_NPX = mean(NPX, na.rm = T)) |> 
+  group_by(Assay) |> 
+  mutate(n_pro = n_distinct(OlinkID)) |> 
+  filter(n_pro > 1) |> 
+  group_by(Assay) |> 
+  mutate(keep_pro = max(mean_NPX)) |> 
+  mutate(remv_pro = ifelse(mean_NPX == keep_pro, 'no','yes')) |> 
+  filter(remv_pro == 'yes') |> 
+  pull(OlinkID)
+
+# Remove all replicated assays except one each
+data_NPX_cohort_rem_no_warn_no_rep <-
+  data_NPX_cohort_rem_no_warn |> 
+  filter(!OlinkID %in% replicate_protein_rem_OlinkID)
+
+data_NPX <- data_NPX_cohort_rem_no_warn_no_rep
+```
+
+
+Correlation between the replicated assays:
+
+```{r, warning=FALSE,message=FALSE}
+replicate_assay <- 
+  data_NPX_cohort_rem_no_warn |> 
+  group_by(OlinkID, Assay) |> 
+  summarise(mean_NPX = mean(NPX, na.rm = T)) |> 
+  group_by(Assay) |> 
+  mutate(n_pro = n_distinct(OlinkID)) |> 
+  filter(n_pro > 1) |> 
+  distinct(Assay) |> 
+  pull(Assay)
+
+replicate_cor_plots <- 
+  lapply(replicate_assay, function(i) {
+    
+    OlinkIDs <-
+      data_NPX |> 
+      filter(Assay == i) |> 
+      distinct(OlinkID) |> 
+      pull(OlinkID)
+    
+    rep_wide<-
+      data_NPX_cohort_rem_no_warn |> 
+      filter(Assay == i) |> 
+      distinct(OlinkID, NPX, DAid) |>  
+      pivot_wider(names_from = OlinkID, values_from = NPX)
+    
+    ggpairs(rep_wide, 2:5, title = i) +
+      theme_hpa()
+    
+  })
+
+replicate_cor_plots[[1]]
+replicate_cor_plots[[2]]
+replicate_cor_plots[[3]]
+```
+
+
+# Save final data
+
+Lastly, we save the final version of the data and metadata for further analyses.
+
+```{r, warning=FALSE}
+write_csv(data_NPX, file = "data/processed/final_data/data_phase1_20240604.csv")  #final_data_phase1.csv
+
+# # Olink
+# meta_olink <- read_csv(file = "data/processed/final_data/metadata_hdba_phase1_olink.csv") 
+# 
+# data_olink <- 
+#   data_NPX |> 
+#   filter(DAid %in% meta_olink$DAid) |> 
+#   select(-SampleID,  -SampleIDOlink, -SampleID_Original, -Cohort, -Class, -Disease, -Subcategory) |> 
+#   relocate(DAid)
+# 
+# raw_data_olink <- 
+#   data_NPX_cohort |> 
+#   filter(DAid %in% meta_olink$DAid) |> 
+#   select(-SampleID,  -SampleIDOlink, -SampleID_Original, -Cohort, -Class, -Disease, -Subcategory) |> 
+#   relocate(DAid)
+# 
+# write_csv(data_olink, file = "data/processed/final_data/data_hdba_phase1_olink.csv") 
+# write_csv(raw_data_olink, file = "data/processed/final_data/raw_data_hdba_phase1_olink.csv") 
+
+# Resource
+resource_meta <- read_csv(file = "data/processed/final_data/metadata_resource_20240604.csv") 
+
+data_resource <- 
+  data_NPX |> 
+  filter(DAid %in% resource_meta$DAid) |> 
+  select(-SampleID_Original) |> 
+  relocate(DAid)
+
+#write_csv(data_resource, file = "data/processed/final_data/data_resource.csv") 
+
+cor_proteins <- read_csv("data/processed/LF/hooking.correlation.above.0.7.csv")
+
+cor_proteins_exclude <- 
+  cor_proteins |> 
+  select(-name) |> 
+  rename(Assay = value)
+
+data_resource_clean <- 
+  data_resource |> 
+  filter(!Assay %in% c("PCOLCE", cor_proteins$value))
+
+write_csv(data_resource_clean, file = "data/processed/final_data/data_resource_20240604.csv") 
+#write_csv(cor_proteins_exclude, file = "data/processed/final_data/excluded_proteins.csv") 
+```
+
+
