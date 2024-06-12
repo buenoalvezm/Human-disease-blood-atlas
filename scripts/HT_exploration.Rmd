@@ -1,0 +1,1056 @@
+---
+title: "HT"
+output: html_document
+date: "2024-04-24"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(tidyverse)
+library(arrow)
+library(readxl)
+library(ggsci)
+library(ggbeeswarm)
+library(GGally)
+library(pheatmap)
+library(ggplotify)
+library(patchwork)
+library(impute)
+#library(ggrain)
+library(ggrepel)
+library(limma)
+library(OlinkAnalyze)
+#library(sparklyr)
+
+source("scripts/themes_palettes.R")
+source("scripts/functions_utility.R")
+source("scripts/functions_analyses.R")
+source("scripts/functions_visualization.R")
+
+#data_ht <- spark_read_parquet(sc, 
+ #                             name = "s_df", 
+  #                            path = "data/cs-transfer/VL-3530-B1-delivery1_NPX_2024-05-14.parquet")
+
+data_ht <- read_parquet("data/cs-transfer/VL-3530-B1-delivery1_NPX_2024-05-14.parquet")
+manifest <- read_excel("data/samples_2024-04-19.xlsx")
+concentration_info <- read_xlsx("data/concentrations_blood-atlas-build.xlsx")
+
+
+pal_phase2 <-  c("#6f1926", "#de324c", "#f4895f",  "#f8e16f",  "#95cf92",  "#369acc",  "#9656a2",  "#cbabd1")
+names(pal_phase2) <- c("BAMS_Erik Melén", "BDG2_Fredrik Edfors", "CTRL_Fredrik Edfors", "EPIL_Johan Zelano", "FIBR_Camilla Svensson", "PARD_Per Svenningsson", "PREG_Agneta Holmäng","WELL_Göran Bergström" )
+
+```
+
+
+# Data overview
+
+```{r}
+control_sample_types <- c("SAMPLE_CONTROL", "PLATE_CONTROL", "NEGATIVE_CONTROL")
+control_assays <- c("ext_ctrl", "inc_ctrl", "amp_ctrl")
+
+olink_meta <- 
+  data_ht |> 
+  distinct(Assay, OlinkID, UniProt, AssayType, Block)
+
+# Number of plates per sample
+data_ht |> 
+  filter(SampleType == "SAMPLE") |>
+  separate(SampleID, into = c("DAid", "Plate"), sep = "-", remove = F) |> 
+  group_by(DAid) |> 
+  count(Plate) |> 
+  arrange(-n)
+
+id_mapping <- 
+  data_ht |> 
+  filter(SampleType == "SAMPLE") |> 
+  distinct(SampleID) |> 
+  separate(SampleID, into = c("DAid", "Plate"), sep = "-", remove = F) 
+
+data <- 
+  data_ht |> 
+  filter(SampleType == "SAMPLE") |>
+  left_join(id_mapping, by = "SampleID") |> 
+  select(DAid, Assay, Count, ExtNPX, NPX, PCNormalizedNPX, SampleQC)
+
+data_controls <- 
+  data_ht |> 
+  filter(SampleType %in% control_sample_types) |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  select(SampleID, Assay, Count, ExtNPX, NPX, PCNormalizedNPX, SampleQC)
+```
+
+## Blocks
+
+```{r}
+# Blocks
+data_ht |> 
+  distinct(Assay, Block) |> 
+  count(Block) |> 
+  ggplot(aes(Block, n, fill = Block)) +
+  geom_col() +
+  geom_text(aes(label = n, y = n + 20)) +
+  scale_fill_brewer(direction = -1) +
+  theme_hpa()
+
+ggsave(savepath("blocks.png"), h = 5, w = 5)
+
+
+data_ht |> 
+  distinct(Assay, Block) |> 
+  left_join(concentration_info, by = c("Assay" = "Gene")) |> 
+  filter(!is.na(`ng/L`)) |> 
+  ggplot(aes(Block, log2(`ng/L`), color = Block, fill = Block)) +
+  geom_quasirandom() +
+  geom_boxplot(alpha = 0.5, outlier.color = NA) +
+  scale_color_brewer(direction = -1) +
+  scale_fill_brewer(direction = -1) +
+  theme_hpa()
+
+ggsave(savepath("blocks_concentration.png"), h = 5, w = 5)
+```
+
+## Plates
+
+```{r}
+
+```
+
+## Assay warning
+
+```{r}
+data |> 
+  distinct(SampleID) |> 
+  nrow()
+
+data_ht |> 
+  group_by(Assay) |> 
+  count(AssayQC) |> 
+  filter(!AssayQC %in% c("NA", "PASS"))
+```
+
+
+## QC warning
+
+```{r}
+data |> 
+  distinct(SampleID) |> 
+  nrow()
+
+data |> 
+  group_by(DAid) |> 
+  count(SampleQC) |> 
+  filter(!SampleQC %in% c("NA", "PASS")) |> 
+  arrange(-n) |> 
+  left_join(manifest, by = "DAid") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggplot(aes(fct_reorder(DAid, -n), n, fill = Cohort)) +
+  geom_col() +
+  scale_fill_manual(values = pal_phase2) +
+  xlab("Sample") +
+  theme_hpa(angled = T) +
+  ggtitle("Samples with QC warnings")
+
+ggsave(savepath("samples_qc.png"), h = 6, w = 6)
+```
+
+## Replicate assys
+
+```{r}
+
+replicate_assays <- 
+  data |>  
+  group_by(Assay) |> 
+  count() |> 
+  arrange(-n) |> 
+  filter(n > 1050) |> 
+  pull(Assay)
+
+data_ht |> 
+  filter(Assay == "GBP1",
+         SampleType == "SAMPLE") |> 
+  select(OlinkID, PCNormalizedNPX, SampleID) |> 
+  pivot_wider(names_from = OlinkID, values_from = PCNormalizedNPX) |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  left_join(manifest, by = "DAid") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggpairs(2:4, title = "GBP1",
+          mapping = ggplot2::aes(color = Cohort)) +
+  scale_fill_manual(values = pal_phase2) +
+  scale_color_manual(values = pal_phase2) +
+  theme_hpa() 
+
+ggsave(savepath("GBP1_replicates.png"), h = 8, w = 8)
+  
+data_ht |> 
+  filter(Assay == "MAP2K1",
+         SampleType == "SAMPLE") |> 
+  select(OlinkID, PCNormalizedNPX, SampleID) |> 
+  pivot_wider(names_from = OlinkID, values_from = PCNormalizedNPX) |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  left_join(manifest, by = "DAid") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggpairs(2:4, title = "MAP2K1",
+          mapping = ggplot2::aes(color = Cohort)) +
+  scale_fill_manual(values = pal_phase2) +
+  scale_color_manual(values = pal_phase2) +
+  theme_hpa() 
+
+ggsave(savepath("MAP2K1_replicates.png"), h = 8, w = 8)
+
+
+# Intensity
+data_ht |> 
+  filter(Assay == "GBP1",
+         SampleType == "SAMPLE") |> 
+  select(OlinkID, NPX, SampleID) |> 
+  pivot_wider(names_from = OlinkID, values_from = NPX) |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  left_join(manifest, by = "DAid") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggpairs(2:4, title = "GBP1",
+          mapping = ggplot2::aes(color = Cohort)) +
+  scale_fill_manual(values = pal_phase2) +
+  scale_color_manual(values = pal_phase2) +
+  theme_hpa() 
+
+ggsave(savepath("GBP1_replicates_IN.png"), h = 8, w = 8)
+  
+data_ht |> 
+  filter(Assay == "MAP2K1",
+         SampleType == "SAMPLE") |> 
+  select(OlinkID, NPX, SampleID) |> 
+  pivot_wider(names_from = OlinkID, values_from = NPX) |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  left_join(manifest, by = "DAid") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggpairs(2:4, title = "MAP2K1",
+          mapping = ggplot2::aes(color = Cohort)) +
+  scale_fill_manual(values = pal_phase2) +
+  scale_color_manual(values = pal_phase2) +
+  theme_hpa() 
+
+ggsave(savepath("MAP2K1_replicates_IN.png"), h = 8, w = 8)
+```
+
+
+
+
+# Overview cohort
+
+## Number of samples
+
+```{r}
+data |> 
+  distinct(DAid) |> 
+  left_join(manifest, by = "DAid") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  count(Cohort) |> 
+  ggplot(aes(Cohort, n, fill = Cohort)) +
+  geom_col() +
+  scale_fill_manual(values = pal_phase2) +
+  geom_text(aes(label = n), vjust = -0.5) +
+  theme_hpa(angled = T) +
+  ylab("Number of samples")
+
+ggsave(savepath("da_phase2_cohorts_delivery1.png"), h = 6, w = 6)
+```
+
+## Raincloud plot
+
+# Replicate samples
+
+## Bridging samples
+
+```{r}
+
+data_phase1 <-  read_csv("data/processed/final_data/data_NPX_cohort.csv")
+data_NPX_phase1 <- read_csv(file = "data/processed/final_data/final_data_phase1.csv") 
+
+manifest |> 
+  distinct(`Vial barcode`, DAid, Cohort) |> 
+  group_by(`Vial barcode`) |> 
+  count(DAid) |>
+  arrange(-n)
+
+common_assays <- 
+  data |> 
+  distinct(Assay) |> 
+  filter(Assay %in% unique(data_phase1$Assay)) |> 
+  pull(Assay)
+
+bridging_samples <- 
+  manifest |> 
+  filter(DAid %in% data$DAid) |> 
+  filter(Cohort == "BDG2") 
+
+bridging_p2 <- 
+  bridging_samples |> 
+  select(DAid, `Vial barcode`, `Extra data`) |> 
+  separate(`Extra data`, sep = "\n", into = c("Original", "Other")) |> 
+  mutate(Original = str_remove(Original, "label: ")) |> 
+  select(DAid, `Vial barcode` = Original) |> 
+  filter(`Vial barcode` != "NA",
+         !is.na(`Vial barcode`))
+
+bridging_p1 <- 
+  manifest |> 
+  filter(`Vial barcode` %in% bridging_p2$`Vial barcode`,
+         Cohort != "ANMU") #Duplicated vial nr 
+
+
+replicate_proteins <- c("IL6", "TNF", "CXCL8", "GBP1", "MAP2K1")
+
+common_assays <- 
+  data |> 
+  distinct(Assay) |> 
+  filter(!Assay %in% control_assays,
+         !Assay %in% replicate_proteins,
+         Assay %in% data_phase1$Assay) |> 
+  pull(Assay)
+
+data_bridging_p1 <- 
+  data_phase1 |> 
+  left_join(manifest |> 
+              distinct(DAid, `Vial barcode`, by = "DAid")) |> 
+  filter(`Vial barcode` %in% bridging_p1$`Vial barcode`,
+         Assay %in% common_assays) |> 
+  select(ID = `Vial barcode`, Assay, NPX_P1 = NPX)
+
+data_bridging_p2 <- 
+  data |> 
+  left_join(bridging_p2 |> 
+              distinct(DAid, `Vial barcode`, by = "DAid")) |> 
+  filter(DAid %in% bridging_p2$DAid,
+         Assay %in% common_assays) |> 
+  select(ID = `Vial barcode`, Assay, NPX_P2 = NPX)
+
+data_bridging_p1 |> 
+  distinct(ID)
+data_bridging_p2 |> 
+  distinct(ID)
+data_bridging_p1 |> 
+  distinct(Assay)
+data_bridging_p2 |> 
+  distinct(Assay)
+
+# Correlations
+combined_p1_p2 <- 
+  data_bridging_p1 |> 
+  left_join(data_bridging_p2, by = c("ID", "Assay"))
+
+cor_p1_p2 <- 
+  combined_p1_p2 |> 
+  group_by(Assay) |>
+  summarize(cor = cor(NPX_P1, NPX_P2)) |> 
+  arrange(cor) |> 
+  left_join(olink_meta, by = "Assay") 
+
+cor_p1_p2 |>
+  ggplot(aes("Proteins", cor, color = Block)) +
+  geom_beeswarm() +
+  geom_text_repel(aes(label = Assay), show.legend = F, size = 3) +
+  scale_color_brewer(direction = -1) +
+  xlab("") +
+  ylab("Correlation P1 - P2") +
+  theme_hpa()
+
+ggsave(savepath("cor_distribution.png"), h = 9 , w = 8)
+
+above <- 
+  cor_p1_p2 |> 
+  filter(cor > 0.8) |> 
+  nrow()
+
+cor_p1_p2 |>
+  ggplot(aes(cor)) +
+  geom_density(fill = "lightgrey") +
+  geom_vline(xintercept = 0.8, color = "red", lty = "dashed") +
+  geom_text(aes(x = 0.95, y = 9, label = paste(above, " proteins")), color = "red") +
+  #geom_text_repel(aes(label = Assay), show.legend = F, size = 3) +
+  #scale_color_brewer(direction = -1) +
+#  xlab("") +
+#  ylab("Correlation P1 - P2") +
+  theme_hpa()
+
+ggsave(savepath("cor_distribution_2.png"), h = 6 , w = 8)
+
+
+highest <-
+  cor_p1_p2 |> 
+  arrange(-cor) |> 
+  head(5)
+  
+lowest <-
+  cor_p1_p2 |> 
+  arrange(cor) |> 
+  head(5)
+  
+library(ggpubr)
+p1 <- 
+  combined_p1_p2 |> 
+  filter(Assay %in% highest$Assay) |>
+  ggplot(aes(NPX_P1, NPX_P2)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "grey") +
+  #geom_cor +
+  stat_cor(method = "spearman") +
+  facet_wrap(~Assay, scales = "free", nrow = 1) +
+  theme_hpa() 
+  
+p2 <- 
+  combined_p1_p2 |> 
+  filter(Assay %in% lowest$Assay) |>
+  ggplot(aes(NPX_P1, NPX_P2)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "grey") +
+  #geom_cor +
+  stat_cor(method = "spearman") +
+  facet_wrap(~Assay, scales = "free", nrow = 1) +
+  theme_hpa() 
+
+p1 / p2
+ggsave(savepath("correlations_highest_lowest.png"), h = 8, w = 10)
+```
+
+
+
+BDG2_Fredrik Edfors -> DAid not in manifest
+
+
+## Controls
+
+```{r}
+manifest |> 
+  filter(DAid %in% data$DAid) |> 
+  filter(Cohort == "CTRL") 
+
+#Patient 2 - DA12362
+#Patient 3 - DA12363
+
+id_mapping |> 
+  group_by(DAid) |> 
+  summarize(n = n_distinct(Plate)) |> 
+  arrange(-n)
+  
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12362") |> 
+  select(Plate, OlinkID, PCNormalizedNPX) |> 
+  pivot_wider(names_from = OlinkID, values_from = PCNormalizedNPX) |> 
+  column_to_rownames("Plate") |> 
+  t() |> 
+  cor(method = "spearman")|> 
+  pheatmap() |> 
+  as.ggplot() +
+  ggtitle("Correlation for Patient 2 measurements across plates") +
+  theme(plot.title = element_text(face = "bold", size = rel(1))) +
+
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12363") |> 
+  select(Plate, OlinkID, NPX) |> 
+  pivot_wider(names_from = OlinkID, values_from = NPX) |> 
+  column_to_rownames("Plate") |> 
+  t() |> 
+  cor(method = "spearman")|> 
+  pheatmap() |> 
+  as.ggplot() +
+  ggtitle("Correlation for Patient 2 measurements across plates") +
+  theme(plot.title = element_text(face = "bold", size = rel(1))) 
+
+ggsave(savepath("plate_controls.png"), h = 6, w = 12)
+
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12362") |> 
+  select(Plate, OlinkID, PCNormalizedNPX) |> 
+  pivot_wider(names_from = Plate, values_from = PCNormalizedNPX) |> 
+  ggpairs(c(2:13),
+            lower = list(continuous = "points", size = 0.05)) +
+  ggtitle("Correlation for Patient 2 measurements across plates") 
+
+ggsave(savepath("p2_plate_scatterplots.png"), h = 10, w = 10)
+
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12363") |> 
+  select(Plate, OlinkID, PCNormalizedNPX) |> 
+  pivot_wider(names_from = Plate, values_from = PCNormalizedNPX) |> 
+  ggpairs(c(2:13),
+            lower = list(continuous = "points", size = 0.5)) +
+  ggtitle("Correlation for Patient 3 measurements across plates")
+
+ggsave(savepath("p3_plate_scatterplots.png"), h = 10, w = 10)
+
+
+#
+
+# Correlate against random sample
+
+# Take two plates, heatmpas → correlation all samples all plates → stand out as better? Mizup in plate orientation?
+
+# Plot per bloc
+
+
+# Plot only with 1,5K
+prots_phase1 <- 
+  data_NPX_phase1 |> 
+  distinct(Assay) |> 
+  pull()
+
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12362") |> 
+  filter(Assay %in% prots_phase1) |> 
+  select(Plate, OlinkID, NPX) |> 
+  pivot_wider(names_from = OlinkID, values_from = NPX) |> 
+  column_to_rownames("Plate") |> 
+  t() |> 
+  cor(method = "spearman")|> 
+  pheatmap() |> 
+  as.ggplot() +
+  ggtitle("Correlation for Patient 2 measurements across plates") +
+  theme(plot.title = element_text(face = "bold", size = rel(1))) +
+
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12363") |> 
+  filter(Assay %in% prots_phase1) |> 
+  select(Plate, OlinkID, NPX) |> 
+  pivot_wider(names_from = OlinkID, values_from = NPX) |> 
+  column_to_rownames("Plate") |> 
+  t() |> 
+  cor(method = "spearman")|> 
+  pheatmap() |> 
+  as.ggplot() +
+  ggtitle("Correlation for Patient 2 measurements across plates") +
+  theme(plot.title = element_text(face = "bold", size = rel(1))) 
+
+ggsave(savepath("plate_controls_in_explore.png"), h = 6, w = 12)
+
+
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12362") |> 
+  filter(!Assay %in% prots_phase1) |> 
+  select(Plate, OlinkID, NPX) |> 
+  pivot_wider(names_from = OlinkID, values_from = NPX) |> 
+  column_to_rownames("Plate") |> 
+  t() |> 
+  cor(method = "spearman")|> 
+  pheatmap() |> 
+  as.ggplot() +
+  ggtitle("Correlation for Patient 2 measurements across plates") +
+  theme(plot.title = element_text(face = "bold", size = rel(1))) +
+
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12363") |> 
+  filter(!Assay %in% prots_phase1) |> 
+  select(Plate, OlinkID, NPX) |> 
+  pivot_wider(names_from = OlinkID, values_from = NPX) |> 
+  column_to_rownames("Plate") |> 
+  t() |> 
+  cor(method = "spearman")|> 
+  pheatmap() |> 
+  as.ggplot() +
+  ggtitle("Correlation for Patient 2 measurements across plates") +
+  theme(plot.title = element_text(face = "bold", size = rel(1))) 
+
+ggsave(savepath("plate_controls_not_in_explore.png"), h = 6, w = 12)
+
+data_ht |> 
+  filter(Assay %in% prots_phase1) |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12363") |> 
+  select(Plate, OlinkID, PCNormalizedNPX) |> 
+  pivot_wider(names_from = Plate, values_from = PCNormalizedNPX) |> 
+  ggpairs(c(2:13),
+            lower = list(continuous = "points", size = 0.5)) +
+  ggtitle("Correlation for Patient 3 measurements across plates")
+
+```
+
+## Raincloud per plate
+
+```{r}
+raincloud_data <- 
+  data |> 
+  filter(!Assay %in% control_assays,
+         !DAid %in% c("DA12362", "DA12363")) |> 
+  left_join(id_mapping, by = "DAid") |> 
+  group_by(Plate, Assay) |> 
+  summarise(avg_NPX = mean(PCNormalizedNPX))
+
+labels <- 
+  raincloud_data |> 
+  group_by(Plate) |> 
+  top_n(3, -avg_NPX) |> 
+  bind_rows(
+  raincloud_data |> 
+  group_by(Plate) |> 
+  top_n(3, avg_NPX))
+
+raincloud_data |> 
+  ggplot(aes(x = Plate, y = avg_NPX, fill = Plate, color = Plate)) +
+  geom_rain(rain.side = 'l', alpha = 0.6, 
+            boxplot.args.pos = list(position = ggpp::position_dodgenudge(x = .095), width = .1)) +
+ # scale_color_aaas() +
+#  scale_fill_aaas() + 
+  geom_text(data = labels, aes(label = Assay)) +
+  theme_hpa() +
+  ggtitle("Disease Atlas Phase 2 Delivery 1 - NPX distribution") 
+
+ggsave(savepath("raincloud_plate.png"), h = 9, w = 14)
+
+
+```
+
+
+# General analyses
+
+## PCA
+
+```{r}
+
+```
+
+## UMAP
+
+```{r}
+umap_data_PC <- 
+  data_ht |>
+  filter(SampleType == "SAMPLE", 
+         !Assay %in% control_assays) |> 
+  left_join(id_mapping, by = "SampleID") |>
+  filter(!DAid %in% c("DA12362","DA12363")) |> 
+  select(DAid, OlinkID, PCNormalizedNPX) |>
+  pivot_wider(names_from = "OlinkID", values_from = "PCNormalizedNPX") |> 
+  impute_values(ID = "DAid", wide_data = T) |> 
+  column_to_rownames("DAid") |> 
+  do_umap() |> 
+  rownames_to_column("DAid") 
+
+umap_data <- 
+  data_ht |>
+  filter(SampleType == "SAMPLE", 
+         !Assay %in% control_assays) |> 
+  left_join(id_mapping, by = "SampleID") |>
+  filter(!DAid %in% c("DA12362","DA12363")) |> 
+  select(DAid, OlinkID, NPX) |>
+  pivot_wider(names_from = "OlinkID", values_from = "NPX") |> 
+  impute_values(ID = "DAid", wide_data = T) |> 
+  column_to_rownames("DAid") |> 
+  do_umap() |> 
+  rownames_to_column("DAid") 
+
+
+p1 <- 
+  umap_data_PC|> 
+  left_join(manifest, by = "DAid") |> 
+  left_join(id_mapping, by = "DAid") |>
+  ggplot(aes(UMAP1, UMAP2, color = Plate)) +
+  geom_point() +
+#    scale_color_manual(values = c("yes" = "#E16C54", "no" = "#A0CBC7")) + 
+ # ggtitle("MEDECA") +
+  theme_hpa() +
+  coord_fixed() +
+  ggtitle("Plate control normalization") 
+p2 <- 
+  umap_data|> 
+  left_join(manifest, by = "DAid") |> 
+  left_join(id_mapping, by = "DAid") |>
+  ggplot(aes(UMAP1, UMAP2, color = Plate)) +
+  geom_point() +
+#    scale_color_manual(values = c("yes" = "#E16C54", "no" = "#A0CBC7")) + 
+ # ggtitle("MEDECA") +
+  theme_hpa() +
+  coord_fixed() +
+  ggtitle("Intensity normalization") 
+  
+p3 <- 
+  ggplot() + theme_void()
+  
+p4 <- 
+  umap_data|> 
+  left_join(manifest, by = "DAid") |> 
+  left_join(id_mapping, by = "DAid") |>
+  mutate(Cohort = paste(Cohort, `PI - sample owner`,  sep = "_")) |> 
+  ggplot(aes(UMAP1, UMAP2, color = Cohort)) +
+  geom_point() +
+  scale_color_manual(values = pal_phase2) +
+  theme_hpa() +
+  coord_fixed() +
+  ggtitle("Intensity normalization") 
+
+(p1 | p2)
+
+ggsave(savepath("UMAP_HT_normalizations.png"), h = 8, w = 10)
+
+
+
+
+p4
+ggsave(savepath("UMAP_intensity_normalization_cohorts.png"), h = 8, w = 8)
+
+```
+
+
+# Biology
+
+## PD
+
+```{r}
+de_meta <- 
+  manifest |> 
+  filter(Cohort == "PARD",
+         DAid %in% data$DAid) |> 
+  select(DAid, Disease = Diagnose) |> 
+  mutate(Sex = NA,
+         Age = NA,
+         BMI = NA)
+
+de_meta |> 
+  count(Disease) |> 
+  ggplot(aes(Disease, n, fill = Disease, color = Disease)) +
+  geom_col() +
+  geom_text(aes(label = n, y = n + 10)) +
+  scale_fill_manual(values = c("grey", pal_phase2[["PARD_Per Svenningsson"]])) +
+    scale_color_manual(values = c("grey", pal_phase2[["PARD_Per Svenningsson"]])) +
+  theme_hpa(angled = T)
+
+ggsave(savepath("pd_samples.png"), h = 5, w = 5)
+de_data <- 
+  data |> 
+  filter(DAid %in% de_meta$DAid,
+         !Assay %in% c("GBP1", "MAP2K1")) |> 
+  select(DAid, Assay, PCNormalizedNPX) |> 
+  pivot_wider(names_from = "Assay", values_from = "PCNormalizedNPX")
+    
+pd_res <- 
+  de_limma_disease(data_wide = de_data, 
+                   metadata = de_meta,
+                   disease = "PD",
+                   correct = F) |> 
+  mutate(Disease = "PD")
+
+plot_volcano(pd_res) + ggtitle("PD")
+ggsave(savepath("volcano_pd.png"), h = 6, w = 6)
+
+pd_top_prots <- 
+  pd_res |> 
+  head(4) |> 
+  pull(Assay)
+  
+dat <- 
+  data |> 
+  filter(Assay %in% pd_top_prots) |> 
+  left_join(manifest, by = "DAid") |>
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_"),
+         Diagnose = ifelse(Diagnose == "healthy", paste(Diagnose, Cohort, sep = "_"), Diagnose)) 
+
+order <- 
+  dat |> 
+  distinct(Cohort, Diagnose) |> 
+  mutate(Cohort = factor(Cohort, levels = names(pal_phase2))) |> 
+  arrange(Cohort) |> 
+  pull(Diagnose)
+
+dat |> 
+  mutate(Diagnose = factor(Diagnose, levels = order)) |>
+  filter(!grepl("back-up", Diagnose)) |> 
+  ggplot(aes(Diagnose, PCNormalizedNPX, fill = Cohort, color = Cohort)) +
+  geom_quasirandom(alpha = 0.7) +
+  geom_boxplot(alpha = 0.3, outlier.color = NA, color = "grey20") +
+  scale_color_manual(values = pal_phase2) +
+  scale_fill_manual(values = pal_phase2) +
+  facet_wrap(~Assay, scales = "free_y") +
+  theme_hpa(angled = T) +
+  ggtitle("PD - top proteins")
+
+ggsave(savepath("pd_top_prots.png"), h = 10, w = 12)
+
+
+```
+
+## Fibromyalgia
+
+```{r}
+de_meta <- 
+  manifest |> 
+  filter(Cohort == "FIBR",
+         DAid %in% data$DAid) |> 
+  select(DAid, Disease = Diagnose) |> 
+  mutate(Sex = NA,
+         Age = NA,
+         BMI = NA)
+
+de_meta |> 
+  count(Disease) |> 
+  ggplot(aes(Disease, n, fill = Disease, color = Disease)) +
+  geom_col() +
+  geom_text(aes(label = n, y = n + 5)) +
+  scale_fill_manual(values = c("grey", pal_phase2[["FIBR_Camilla Svensson"]])) +
+    scale_color_manual(values = c("grey", pal_phase2[["FIBR_Camilla Svensson"]])) +
+  theme_hpa(angled = T)
+
+ggsave(savepath("fibr_samples.png"), h = 5, w = 5)
+
+de_data <- 
+  data |> 
+  filter(DAid %in% de_meta$DAid,
+         !Assay %in% c("GBP1", "MAP2K1")) |> 
+  select(DAid, Assay, PCNormalizedNPX) |> 
+  pivot_wider(names_from = "Assay", values_from = "PCNormalizedNPX")
+    
+fibr_res <- 
+  de_limma_disease(data_wide = de_data, 
+                   metadata = de_meta,
+                   disease = "fibromyalgia",
+                   correct = F) |> 
+  mutate(Disease = "fibromyalgia")
+
+plot_volcano(fibr_res) + ggtitle("fibromyalgia")
+ggsave(savepath("volcano_fibromyalgia.png"), h = 6, w = 6)
+
+fibr_top_prots <- 
+  fibr_res |> 
+  head(4) |> 
+  pull(Assay)
+  
+dat <- 
+  data |> 
+  filter(Assay %in% fibr_top_prots) |> 
+  left_join(manifest, by = "DAid") |>
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_"),
+         Diagnose = ifelse(Diagnose == "healthy", paste(Diagnose, Cohort, sep = "_"), Diagnose)) 
+
+order <- 
+  dat |> 
+  distinct(Cohort, Diagnose) |> 
+  mutate(Cohort = factor(Cohort, levels = names(pal_phase2))) |> 
+  arrange(Cohort) |> 
+  pull(Diagnose)
+
+dat |> 
+  mutate(Diagnose = factor(Diagnose, levels = order)) |>
+  filter(!grepl("back-up", Diagnose)) |> 
+  ggplot(aes(Diagnose, PCNormalizedNPX, fill = Cohort, color = Cohort)) +
+  geom_quasirandom(alpha = 0.7) +
+  geom_boxplot(alpha = 0.3, outlier.color = NA, color = "grey20") +
+  scale_color_manual(values = pal_phase2) +
+  scale_fill_manual(values = pal_phase2) +
+  facet_wrap(~Assay, scales = "free_y") +
+  theme_hpa(angled = T) +
+  ggtitle("Fibromialgya - top proteins")
+
+ggsave(savepath("fibr_top_prots.png"), h = 10, w = 12)
+
+ ```
+
+
+## Epilepsy
+
+```{r}
+
+```
+
+
+## BAMSE
+
+```{r}
+
+```
+
+
+## Pregnancy
+
+```{r}
+
+```
+
+## Wellness
+
+```{r}
+
+
+```
+
+--------------
+
+# Others
+
+```{r}
+data_ht_da |> 
+  distinct(SampleID, SampleType) |> 
+  filter(SampleType == "SAMPLE") 
+
+data_ht_da |> 
+  group_by(Assay) |> 
+  summarize(n = n_distinct(SampleID)) |> arrange(n)
+#1,032 samples
+#5,416 proteins
+
+exclude_assays <- 
+  data_ht_da |> 
+  distinct(Assay) |> filter(grepl("control", Assay, ignore.case = T) == T) |> 
+  pull()
+
+data_ht_da |>  
+  distinct(Assay) |> 
+  filter(!Assay %in% exclude_assays) |> 
+  nrow()
+
+
+data <- 
+  data_ht_da |> 
+  filter(SampleType == "SAMPLE",
+         !Assay %in% exclude_assays) 
+
+
+#samples <- 
+data |> 
+  distinct(SampleID) |> 
+  separate(SampleID, into = c("DAid", "Plate"), sep = "-") |>
+  left_join(manifest, by = "DAid") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  count(Cohort) |> 
+  ggplot(aes(Cohort, n)) +
+  geom_col() +
+  geom_text(aes(label = n), vjust = -0.5) +
+ # theme_hpa(angled = T) +
+  ylab("Number of samples")
+
+ggsave(savepath("da_phase2_cohorts_delivery1.png"), h = 5, w = 5)
+
+savepath <- 
+  function(savename) { 
+    result_folder <- paste0("results/", Sys.Date())
+    dir.create(result_folder, showWarnings = FALSE)
+    
+    savename <-
+      paste0(result_folder, "/", savename)
+    
+    
+    return(savename)
+    
+  }
+
+savepath_folder <- 
+  function(folder, savename) { 
+    result_folder <- paste0("results/", Sys.Date(), "/",folder)
+    dir.create(result_folder, showWarnings = FALSE)
+    
+    savename <-
+      paste0(result_folder, "/", savename)
+    
+    
+    return(savename)
+    
+  }
+
+theme_hpa <- 
+  function(angled = F, axis_x = T, axis_y = T, facet_title = T) {
+    t <- 
+      theme(
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.spacing = unit(0.2, "lines"), 
+        panel.background=element_rect(fill="white"),
+        panel.border = element_blank(),
+        plot.title = element_text(face = "bold",
+                                  size = rel(1), hjust = 0.5),
+        plot.subtitle=element_text(face = "bold",hjust = 0.5, size=rel(1),vjust=1),
+        axis.title = element_text(face = "bold",size = rel(1)),
+        axis.ticks.length = unit(.25, "cm"),
+        axis.line = element_line(linewidth = 0.5),
+        axis.text = element_text(size = rel(1), color = 'black'),
+        legend.key = element_blank(),
+        legend.position = "right",
+        legend.text = element_text(size=rel(0.8)),
+        legend.key.size= unit(0.7, "cm"),
+        legend.title = element_text(size=rel(1)),
+        plot.margin=unit(c(10,5,5,5),"mm"),
+        strip.background=element_rect(colour="grey90",fill="grey90"),
+        strip.text = element_text(face="bold")
+      )
+    
+    if(angled) {
+      t <- t + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) 
+    }
+    
+    if(axis_x == F) {
+      t <- t +
+        theme(axis.text.x = element_blank(),
+              axis.ticks.x = element_blank(),
+              axis.line.x = element_blank(),
+              axis.title.x = element_blank())
+    } 
+    
+    if(axis_y == F) {
+      t <- t +
+        theme(axis.text.y = element_blank(),
+              axis.ticks.y = element_blank(),
+              axis.line.y = element_blank(),
+              axis.title.y = element_blank())
+    }
+    if(facet_title == F) {
+      t <- t + theme(strip.text = element_blank())
+    }
+    return(t)
+  }
+
+
+library(ggrain)
+library(ggsci)
+library(ggrepel)
+
+meta_2 <- 
+  data |> 
+  distinct(SampleID) |> 
+  separate(SampleID, into = c("DAid", "Plate"), sep = "-") |>
+  left_join(manifest, by = "DAid")
+
+
+raincloud_data <- 
+  data |> 
+  separate(SampleID, into = c("DAid", "Plate"), sep = "-") |>
+  left_join(meta_2 |> 
+              select(-Plate), by = "DAid") |> 
+  group_by(Cohort, Assay) |> 
+  summarise(avg_NPX = mean(NPX))
+
+
+
+raincloud_data %>% 
+  ggplot(aes(x = Cohort, y = avg_NPX, fill = Cohort, color = Cohort)) +
+  geom_rain(rain.side = 'l', alpha = 0.6, 
+            boxplot.args.pos = list(position = ggpp::position_dodgenudge(x = .095), width = .1)) +
+  scale_color_aaas() +
+  scale_fill_aaas() + 
+  geom_text_repel(aes(label = Assay)) +
+  theme_hpa() +
+  ggtitle("Disease Atlas Phase 2 Delivery 1 - NPX distribution") 
+
+ggsave("da_phase2_cohorts_delivery1_npx.png", h = 9, w = 12)
+
+
+#samples <- 
+data |> 
+  distinct(SampleID) |> 
+  separate(SampleID, into = c("DAid", "Plate"), sep = "-") |>
+  left_join(manifest, by = "DAid") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  count(Cohort) |> 
+  ggplot(aes(Cohort, n, fill = Cohort)) +
+  geom_col() +
+  scale_fill_aaas() + 
+  geom_text(aes(label = n), vjust = -0.5) +
+  theme_hpa(angled = T) +
+  ylab("Number of samples")
+
+ggsave(savepath("da_phase2_cohorts_delivery1.png"), h = 6, w = 6)
+
+```
+
