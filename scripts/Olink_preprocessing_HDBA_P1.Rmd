@@ -20,8 +20,8 @@ library("ggrepel")
 library("ggbeeswarm")
 library("viridis")
 library("GGally")
-source("scripts/themes_palettes.R")
-source("scripts/functions_utility.R")
+#source("scripts/themes_palettes.R")
+#source("scripts/functions_utility.R")
 
 # Load data (raw Olink data and processed metadata file - output from O_DA_Preprocessing.R)
 data_NPX <- readr::read_delim("data/UD-2950_B1-B4_NPX_2023-03-29/UD-2950_B1-B4_NPX_2023-03-29.csv", delim = ";")
@@ -155,24 +155,30 @@ high_warning_sample <-
   num_warning_sample |> 
   filter(fraction_flagged > 0.5)
 
-# warning_samples_top_info <-
-#   high_warning_sample |> 
+warning_samples_top_info <-
+  high_warning_sample |>
+  left_join(warehouse_meta_raw, by='DAid')
+# 
+# num_warning_sample |> 
 #   left_join(warehouse_meta_raw, by='DAid') |> 
-#   left_join(data_NPX_cohort, by = join_by(DAid, Cohort, Class, Disease, Subcategory)) |>  
-#   distinct(DAid, num_flagged,fraction_flagged, PlateID, Cohort, Class, Disease) 
-
-num_warning_sample |> 
-  left_join(warehouse_meta_raw, by='DAid') |> 
-  ggplot(aes("Sample", fraction_flagged, label = DAid, color = Class)) +
-  geom_beeswarm() +
-  geom_hline(yintercept = 0.5, linetype = 'dotted', col = 'grey')+
-  scale_color_manual(values = pal_class) +
-  theme_hpa() +
-  xlab("") +
-  ggtitle("Fraction of warnings per sample")
+#   ggplot(aes("Sample", fraction_flagged, label = DAid, color = Class)) +
+#   geom_beeswarm() +
+#   geom_hline(yintercept = 0.5, linetype = 'dotted', col = 'grey')+
+#   scale_color_manual(values = pal_class) +
+#   theme_hpa() +
+#   xlab("") +
+  # ggtitle("Fraction of warnings per sample")
 ```
 
 There are **`r nrow(high_warning_sample)` samples with > 50% QC warnings**, we remove these samples from the data.
+
+```{r, warning=FALSE}
+data_NPX_cohort_rem <-
+  data_NPX_cohort |> 
+  filter(!DAid %in% warning_samples_top_info$DAid)
+
+knitr::kable(warning_samples_top_info, "html")
+```
 
 We remove all data points with QC warnings.
 
@@ -195,14 +201,14 @@ num_warning_assay <-
   mutate(fraction_flagged = num_flagged / nrow(data_NPX_cohort |> distinct(Assay)))|> 
   arrange(desc(num_flagged)) 
 
-num_warning_assay |> 
-  ggplot(aes("Assay", fraction_flagged, label = Assay, color = fraction_flagged)) +
-  geom_beeswarm() +
-  geom_text_repel() +
-  scale_color_viridis() +
-  theme_hpa() +
-  xlab("") +
-  ggtitle("Fraction of warnings per assay")
+# num_warning_assay |> 
+#   ggplot(aes("Assay", fraction_flagged, label = Assay, color = fraction_flagged)) +
+#   geom_beeswarm() +
+#   geom_text_repel() +
+#   scale_color_viridis() +
+#   theme_hpa() +
+#   xlab("") +
+#   ggtitle("Fraction of warnings per assay")
 ```
 
 All proteins (except TNF, IL6 and CXCL8 - replicate proteins) have < 5% of samples with QC warnings.
@@ -354,7 +360,7 @@ data_resource <-
 
 #write_csv(data_resource, file = "data/processed/final_data/data_resource.csv") 
 
-cor_proteins <- read_csv("data/processed/LF/hooking.correlation.above.0.7.csv")
+cor_proteins <- read_csv("data/processed/hooking.correlation.above.0.7.csv")
 
 cor_proteins_exclude <- 
   cor_proteins |> 
