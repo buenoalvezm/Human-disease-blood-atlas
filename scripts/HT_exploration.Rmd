@@ -23,7 +23,6 @@ library(limma)
 library(OlinkAnalyze)
 #library(sparklyr)
 
-source("scripts/themes_palettes.R")
 source("scripts/functions_utility.R")
 source("scripts/functions_analyses.R")
 source("scripts/functions_visualization.R")
@@ -35,10 +34,6 @@ source("scripts/functions_visualization.R")
 data_ht <- read_parquet("data/cs-transfer/VL-3530-B1-delivery1_NPX_2024-05-14.parquet")
 manifest <- read_excel("data/samples_2024-04-19.xlsx")
 concentration_info <- read_xlsx("data/concentrations_blood-atlas-build.xlsx")
-
-
-pal_phase2 <-  c("#6f1926", "#de324c", "#f4895f",  "#f8e16f",  "#95cf92",  "#369acc",  "#9656a2",  "#cbabd1")
-names(pal_phase2) <- c("BAMS_Erik Melén", "BDG2_Fredrik Edfors", "CTRL_Fredrik Edfors", "EPIL_Johan Zelano", "FIBR_Camilla Svensson", "PARD_Per Svenningsson", "PREG_Agneta Holmäng","WELL_Göran Bergström" )
 
 ```
 
@@ -78,6 +73,56 @@ data_controls <-
   filter(SampleType %in% control_sample_types) |> 
   left_join(id_mapping, by = "SampleID") |> 
   select(SampleID, Assay, Count, ExtNPX, NPX, PCNormalizedNPX, SampleQC)
+```
+
+## LOD
+
+```{r}
+
+data_ht_lod <- olink_lod(data = data_ht, lod_method = "NCLOD")
+
+
+ht_lod <- 
+  data_ht_lod |> 
+  filter(!SampleType %in% control_sample_types,
+         !AssayType %in% control_assays,
+         !Assay %in% c("GBP1", "MAP2K1")) |> 
+  mutate(under_LOD = ifelse(NPX < LOD, "Yes", "No")) |> 
+  group_by(Assay) |> 
+  count(under_LOD, .drop = FALSE) |> 
+  filter(under_LOD == "Yes") |>
+  mutate(Percentage_under_LOD = (n / 1032)* 100)  |> 
+  left_join(data_ht |> 
+              distinct(Assay, Block), by = "Assay") 
+
+bloc_lod <- 
+  ht_lod |> 
+  ggplot(aes(Block, 
+             Percentage_under_LOD, 
+             color = Block)) +
+  geom_quasirandom() +
+  geom_violin(fill = NA, 
+              color = "black",
+              draw_quantiles = 0.5) +
+  scale_color_brewer(direction = -1) +
+  theme_hpa()
+
+# In 1,5K or not
+explore_lod <- 
+  ht_lod |> 
+  mutate(Olink_Explore_1463 = ifelse(Assay %in% common_assays, "Yes", "No")) |> 
+  ggplot(aes(Olink_Explore_1463, 
+             Percentage_under_LOD, 
+             color = Olink_Explore_1463)) +
+  geom_quasirandom() +
+  geom_violin(fill = NA, 
+              color = "black",
+              draw_quantiles = 0.5) +
+  #scale_color_brewer(direction = -1) +
+  theme_hpa()
+
+bloc_lod + explore_lod
+ggsave("results/lod.png", h = 5, w = 10)  
 ```
 
 ## Blocks
@@ -264,8 +309,8 @@ ggsave(savepath("da_phase2_cohorts_delivery1.png"), h = 6, w = 6)
 
 ```{r}
 
-data_phase1 <-  read_csv("data/processed/final_data/data_NPX_cohort.csv")
-data_NPX_phase1 <- read_csv(file = "data/processed/final_data/final_data_phase1.csv") 
+data_phase1 <-  read_csv("data/final_data/data_NPX_cohort.csv")
+data_NPX_phase1 <- read_csv(file = "data/final_data/final_data_phase1.csv") 
 
 manifest |> 
   distinct(`Vial barcode`, DAid, Cohort) |> 
@@ -570,6 +615,57 @@ data_ht |>
             lower = list(continuous = "points", size = 0.5)) +
   ggtitle("Correlation for Patient 3 measurements across plates")
 
+#
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12362",
+         Assay %in% prots_phase1) |> 
+  select(Plate, OlinkID, PCNormalizedNPX) |> 
+  pivot_wider(names_from = Plate, values_from = PCNormalizedNPX) |> 
+  ggpairs(c(2:13),
+            lower = list(continuous = "points", size = 0.05)) +
+  ggtitle("Correlation for Patient 2 measurements across plates") 
+
+ggsave("results/p2_plate_scatterplots_phase1_explore15.png", h = 10, w = 10)
+
+
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12362",
+         !Assay %in% prots_phase1 |> 
+  select(Plate, OlinkID, PCNormalizedNPX) |> 
+  pivot_wider(names_from = Plate, values_from = PCNormalizedNPX) |> 
+  ggpairs(c(2:13),
+            lower = list(continuous = "points", size = 0.05)) +
+  ggtitle("Correlation for Patient 2 measurements across plates") 
+
+ggsave("results/p2_plate_scatterplots_phase1_no_explore15.png", h = 10, w = 10)
+
+
+
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12363",
+         Assay %in% prots_phase1) |> 
+  select(Plate, OlinkID, PCNormalizedNPX) |> 
+  pivot_wider(names_from = Plate, values_from = PCNormalizedNPX) |> 
+  ggpairs(c(2:13),
+            lower = list(continuous = "points", size = 0.5)) +
+  ggtitle("Correlation for Patient 3 measurements across plates")
+
+ggsave("results/p3_plate_scatterplots_phase1_explore15.png", h = 10, w = 10)
+
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12363",
+         !Assay %in% prots_phase1) |> 
+  select(Plate, OlinkID, PCNormalizedNPX) |> 
+  pivot_wider(names_from = Plate, values_from = PCNormalizedNPX) |> 
+  ggpairs(c(2:13),
+            lower = list(continuous = "points", size = 0.5)) +
+  ggtitle("Correlation for Patient 3 measurements across plates")
+
+ggsave("results/p3_plate_scatterplots_phase1_no_explore15.png", h = 10, w = 10)
 ```
 
 ## Raincloud per plate
