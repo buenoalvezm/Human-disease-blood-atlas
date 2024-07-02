@@ -133,9 +133,9 @@
     },
     "OlinkAnalyze": {
       "Package": "OlinkAnalyze",
-      "Version": "3.2.2",
+      "Version": "3.8.2",
       "Source": "Repository",
-      "Repository": "CRAN",
+      "Repository": "RSPM",
       "Requirements": [
         "R",
         "broom",
@@ -165,7 +165,7 @@
         "utils",
         "zip"
       ],
-      "Hash": "7650f02adfe65471b949f172ad14acf0"
+      "Hash": "974df027658e678b975b5e1c52ab776a"
     },
     "R6": {
       "Package": "R6",
