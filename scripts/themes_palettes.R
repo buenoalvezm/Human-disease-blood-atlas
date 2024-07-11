@@ -3,6 +3,11 @@
 pal_phase2 <-  c("#6f1926", "#de324c", "#f4895f",  "#f8e16f",  "#95cf92",  "#369acc",  "#9656a2",  "#cbabd1")
 names(pal_phase2) <- c("BAMS_Erik Melén", "BDG2_Fredrik Edfors", "CTRL_Fredrik Edfors", "EPIL_Johan Zelano", "FIBR_Camilla Svensson", "PARD_Per Svenningsson", "PREG_Agneta Holmäng","WELL_Göran Bergström" )
 
+pal_de <-
+  c("not significant" = "#D3D3D3",
+    "significant up" = "#FF7176",
+    "significant down" = "#92C9DA")
+
 # Themes
 theme_hpa <- 
   function(angled = F, axis_x = T, axis_y = T, facet_title = T) {
