@@ -2,7 +2,7 @@ library(tidyverse)
 library(readxl)
 
 # Starting LIMS file
-warehouse_meta_raw <- readxl::read_excel("data/samples_2024-04-19.xlsx")
+warehouse_meta_raw <- readxl::read_excel("data/Disease LIMS samples July 15.xlsx")
 
 # Diseases to exclude from resource
 exclude_disease <- c("Influenza follow up",
@@ -138,4 +138,4 @@ resource_meta <-
 
 
 # Save final data
-write_csv(resource_meta, "data/processed/final_data/metadata_resource_20240604.csv") 
+write_csv(resource_meta, "data/processed/final_data/metadata_resource_20240715.csv") 
