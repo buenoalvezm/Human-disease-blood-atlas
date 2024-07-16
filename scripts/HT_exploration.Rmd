@@ -33,12 +33,6 @@ manifest <- read_excel("data/samples_2024-04-19.xlsx")
 concentration_info <- read_xlsx("data/concentrations_blood-atlas-build.xlsx")
 data_phase1 <-  read_csv("data/final_data/data_NPX_cohort.csv")
 data_NPX_phase1 <- read_csv(file = "data/final_data/final_data_phase1.csv") 
-
-common_assays <- 
-  data |> 
-  distinct(Assay) |> 
-  filter(Assay %in% unique(data_phase1$Assay)) |> 
-  pull(Assay)
 ```
 
 # Compare phase 1 and phase 2 assays
@@ -91,6 +85,12 @@ data_controls <-
   filter(SampleType %in% control_sample_types) |> 
   left_join(id_mapping, by = "SampleID") |> 
   select(SampleID, Assay, Count, ExtNPX, NPX, PCNormalizedNPX, SampleQC)
+
+common_assays <-
+  data |>
+  distinct(Assay) |>
+  filter(Assay %in% unique(data_phase1$Assay)) |>
+  pull(Assay)
 ```
 
 ## LOD
@@ -391,13 +391,11 @@ ggsave(savepath("da_phase2_cohorts.png"), h = 6, w = 6)
 ## Bridging samples
 
 ```{r}
-
 manifest |> 
   distinct(`Vial barcode`, DAid, Cohort) |> 
   group_by(`Vial barcode`) |> 
   count(DAid) |>
   arrange(-n)
-
 
 bridging_samples <- 
   manifest |> 
@@ -531,6 +529,50 @@ p2 <-
 
 p1 / p2
 ggsave(savepath("correlations_highest_lowest.png"), h = 8, w = 10)
+
+# Cluster 1 proteins
+cor_proteins <- read_csv("data/processed/hooking.correlation.above.0.7.csv")
+
+cor_p1_p2 |>
+  mutate(Excluded_phase_1 = ifelse(Assay %in% cor_proteins$value, "Yes", "No")) |> 
+  ggplot(aes("Proteins", cor, color = Excluded_phase_1)) +
+  geom_beeswarm(alpha = 0.7) +
+  geom_text_repel(aes(label = Assay), show.legend = F, size = 3) +
+  scale_color_manual(values = c("Yes" = "red", "No" = "grey")) +
+  xlab("") +
+  ylab("Correlation P1 - P2") +
+  theme_hpa()
+
+ggsave(savepath("cor_distribution_excluded.png"), h = 9 , w = 8)
+
+# Percentage under LOD
+cor_p1_p2 |>
+  left_join(ht_lod, by = "Assay") |> 
+  ggplot(aes("Proteins", cor, color = Percentage_under_LOD)) +
+  geom_beeswarm(alpha = 0.7) +
+  geom_text_repel(aes(label = Assay), show.legend = F, size = 3) +
+ # scale_color_manual(values = c("Yes" = "red", "No" = "grey")) +
+  xlab("") +
+  ylab("Correlation P1 - P2") +
+  theme_hpa()
+
+ggsave(savepath("cor_distribution_lod.png"), h = 9 , w = 8)
+
+
+cor_p1_p2 |>
+  left_join(ht_lod, by = "Assay") |> 
+  mutate(`below_LOD_in_50%` = ifelse(Percentage_under_LOD > 50, "Yes", "No")) |>
+  ggplot(aes("Proteins", cor, color = `below_LOD_in_50%`)) +
+  geom_beeswarm(alpha = 0.7) +
+  geom_text_repel(aes(label = Assay), show.legend = F, size = 3) +
+  scale_color_manual(values = c("Yes" = "red", "No" = "grey")) +
+  xlab("") +
+  ylab("Correlation P1 - P2") +
+  theme_hpa()
+
+ggsave(savepath("cor_distribution_lod_binary.png"), h = 9 , w = 8)
+
+
 ```
 
 
