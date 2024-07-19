@@ -104,6 +104,16 @@
       ],
       "Hash": "022f78c8698724b326f1838b1a98cafa"
     },
+    "GenSA": {
+      "Package": "GenSA",
+      "Version": "1.1.14",
+      "Source": "Repository",
+      "Repository": "RSPM",
+      "Requirements": [
+        "R"
+      ],
+      "Hash": "795742f11262803ce349e6b583deb26a"
+    },
     "MASS": {
       "Package": "MASS",
       "Version": "7.3-58.1",
@@ -239,6 +249,20 @@
         "methods"
       ],
       "Hash": "f6baa1e06fb6c3724f601a764266cb0d"
+    },
+    "RcppArmadillo": {
+      "Package": "RcppArmadillo",
+      "Version": "14.0.0-1",
+      "Source": "Repository",
+      "Repository": "RSPM",
+      "Requirements": [
+        "R",
+        "Rcpp",
+        "methods",
+        "stats",
+        "utils"
+      ],
+      "Hash": "a711769be34214addf7805278b72d56b"
     },
     "RcppEigen": {
       "Package": "RcppEigen",
@@ -787,6 +811,26 @@
         "stats"
       ],
       "Hash": "1a78288c1188772070240b89ffe33579"
+    },
+    "eulerr": {
+      "Package": "eulerr",
+      "Version": "7.0.2",
+      "Source": "Repository",
+      "Repository": "RSPM",
+      "Requirements": [
+        "GenSA",
+        "R",
+        "Rcpp",
+        "RcppArmadillo",
+        "grDevices",
+        "graphics",
+        "grid",
+        "polyclip",
+        "polylabelr",
+        "stats",
+        "utils"
+      ],
+      "Hash": "956943a4efa8f43195e6fb6ef640d654"
     },
     "evaluate": {
       "Package": "evaluate",
@@ -1696,6 +1740,27 @@
         "Rcpp"
       ],
       "Hash": "d744387aef9047b0b48be2933d78e862"
+    },
+    "polyclip": {
+      "Package": "polyclip",
+      "Version": "1.10-6",
+      "Source": "Repository",
+      "Repository": "RSPM",
+      "Requirements": [
+        "R"
+      ],
+      "Hash": "436542aadb70675e361cf359285af7c7"
+    },
+    "polylabelr": {
+      "Package": "polylabelr",
+      "Version": "0.2.0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "Rcpp"
+      ],
+      "Hash": "175f8058029901087c02217f7ea8f99c"
     },
     "polynom": {
       "Package": "polynom",
