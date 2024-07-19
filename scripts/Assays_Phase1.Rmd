@@ -1,0 +1,145 @@
+---
+title: "Assays_Phase1"
+output: html_document
+date: "2024-07-17"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+#Load packages
+library(tidyverse)
+library(ggbeeswarm)
+library(pheatmap)
+library(ggplotify)
+
+# Read internal functions
+source("scripts/functions_utility.R")
+source("scripts/themes_palettes.R")
+
+# Read data
+manifest <- import_df("data/samples_2024-04-19.xlsx")
+concentration_info <- import_df("data/concentrations_blood-atlas-build.xlsx")
+data_NPX_phase1 <- import_df(file = "data/final_data/final_data_phase1.csv") 
+```
+
+# Pre-analytical variation
+
+```{r}
+
+cor_proteins <- read_csv("data/processed/hooking.correlation.above.0.7.csv")
+
+
+
+```
+
+# LOD exploration
+
+```{r}
+n_samples <- 
+  data_NPX_phase1 |>  
+  distinct(DAid) |> 
+  nrow()
+
+phase1_lod <- 
+  data_NPX_phase1 |> 
+ mutate(under_LOD = ifelse(NPX < LOD, "Yes", "No")) |> 
+  group_by(Assay) |> 
+  count(under_LOD, .drop = FALSE) |> 
+  filter(under_LOD == "Yes") |> 
+  mutate(Percentage_under_LOD = (n / n_samples)* 100)  |> 
+  arrange(-Percentage_under_LOD)
+
+phase1_lod |> 
+  ggplot(aes(Percentage_under_LOD)) +
+  geom_histogram() +
+  theme_hpa() +
+  ylab("Number of proteins")
+
+phase1_lod |> 
+  mutate(above_75 = ifelse(Percentage_under_LOD > 75, "Yes", "No")) |>
+  ggplot(aes("Protein", Percentage_under_LOD)) +
+  geom_quasirandom(size = 0.5) +
+  #scale_color_ b rewer(direction = -1) +
+  geom_hline(yintercept = 75, linetype = "dashed") +
+  theme_hpa() +
+  xlab("")
+
+assays_above_75 <- 
+  phase1_lod |> 
+  filter(Percentage_under_LOD > 75) |>
+  pull(Assay)
+
+
+phase1_lod_disease_dat <- 
+  data_NPX_phase1 |> 
+  select(DAid, Assay, NPX, LOD) |> 
+  mutate(under_LOD = ifelse(NPX < LOD, "Yes", "No")) |> 
+  left_join(manifest |> 
+              select(DAid, Disease), by = "DAid")  |> 
+  group_by(Disease) |> 
+  mutate(n = n_distinct(DAid)) 
+
+samples_disease <- 
+  phase1_lod_disease_dat |> 
+  distinct(Disease, n)
+
+phase1_lod_disease <- 
+  phase1_lod_disease_dat |>
+  group_by(Assay, Disease) |> 
+  count(under_LOD, .drop = FALSE) |> 
+  rename(n_under = n) |> 
+  filter(under_LOD == "Yes") |>
+  left_join(samples_disease, by = "Disease") |> 
+  mutate(Percentage_under_LOD = (n_under / n)* 100)  |> 
+  arrange(-Percentage_under_LOD)
+
+annotation <- 
+  manifest |> 
+  distinct(Disease, Class, Cohort) |> 
+  mutate(Class = case_when(Cohort == "UCAN" & Disease != "UCAN controls" ~ "Cancer",
+                           Disease == "UCAN controls" ~ "Healthy",
+                           Cohort %in% c("VBCE", "VBER", "CHAP") ~ "Cardiovascular",
+                           Cohort == "AUTO" ~ "Autoimmune",
+                           Cohort == "COLC" ~ "Cancer",
+                           Disease == "NAFLD AT" ~ "Metabolic",
+                           Disease == "Coronary artery calcification" ~ "Cardiovascular",
+                           T ~ Class)) |> 
+  filter(!is.na(Disease),
+       Disease %in% unique(phase1_lod_disease_dat$Disease)) |> 
+  select(-Cohort) |> 
+  distinct() |> 
+  mutate(Class = factor(Class, levels = names(pal_class))) |> 
+  column_to_rownames("Disease")
+
+phase1_lod_disease |> 
+  filter(Assay %in% assays_above_75) |> 
+  filter(!is.na(Disease)) |> 
+  select(Assay, Disease, Percentage_under_LOD) |>
+  pivot_wider(names_from = Assay, 
+              values_from = Percentage_under_LOD,
+              values_fill = 0) |> 
+  column_to_rownames("Disease") |> 
+  t() |> 
+  pheatmap(color=colorRampPalette(c("navy", "white"))(50),
+           annotation_col = annotation,
+           annotation_colors = list("Class" = pal_class)) |> 
+  as.ggplot()
+
+ggsave(savepath("heatmap_LOD.png"), h = 10, w = 12)
+
+
+```
+
+# HPA context
+
+```{r}
+
+```
+
+# Final list
+
+```{r}
+
+```
+
