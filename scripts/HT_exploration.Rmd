@@ -28,12 +28,30 @@ source("scripts/functions_utility.R")
 source("scripts/themes_palettes.R")
 
 # Read data
-data_ht <- read_parquet("data/cs-transfer/VL-3530B1_complete_NPX_2024-07-01.parquet")
-manifest <- read_excel("data/samples_2024-04-19.xlsx")
-concentration_info <- read_xlsx("data/concentrations_blood-atlas-build.xlsx")
-data_phase1 <-  read_csv("data/final_data/data_NPX_cohort.csv")
-data_NPX_phase1 <- read_csv(file = "data/final_data/final_data_phase1.csv") 
+data_ht <- import_df("data/cs-transfer/VL-3530B1_complete_NPX_2024-07-01.parquet")
+manifest <- import_df("data/samples_2024-04-19.xlsx")
+concentration_info <- import_df("data/concentrations_blood-atlas-build.xlsx")
+data_phase1 <-  import_df("data/final_data/data_NPX_cohort.csv")
+data_NPX_phase1 <- import_df(file = "data/final_data/final_data_phase1.csv") 
 ```
+
+# Targets 3 platforms
+
+```{r}
+targets_ht <- 
+  import_df("data/olink_targets/targets_ht.csv")
+targets_3072 <- 
+  import_df("data/olink_targets/targets_3k.xlsx")
+targets_1463 <- 
+  data_NPX_phase1 <- 
+  distinct(Assay)
+
+plot_euler()
+
+``` 
+
+
+
 
 # Compare phase 1 and phase 2 assays
 
@@ -96,7 +114,6 @@ common_assays <-
 ## LOD
 
 ```{r}
-
 data_ht_lod <- olink_lod(data = data_ht, lod_method = "NCLOD")
 
 
@@ -583,9 +600,11 @@ BDG2_Fredrik Edfors -> DAid not in manifest
 ## Controls
 
 ```{r}
-manifest |> 
+control_samples <- 
+  manifest |> 
   filter(DAid %in% data$DAid) |> 
-  filter(Cohort == "CTRL") 
+  filter(Cohort == "CTRL") |> 
+  pull(DAid)
 
 #Patient 2 - DA12362
 #Patient 3 - DA12363
@@ -956,6 +975,117 @@ umap_data|>
   ggtitle("Intensity normalization") 
 
 ggsave(savepath("UMAP_HT_BAMSE.png"), h = 8, w = 10)
+```
+
+# Protein co-expression
+
+## Correlation
+
+```{r}
+cor_proteins <- read_csv("data/processed/hooking.correlation.above.0.7.csv")
+
+exclude_assays_controls <- 
+  data_ht |> 
+  filter(AssayType %in% control_assays) |> 
+  distinct(Assay) |> 
+  pull(Assay)
+
+cor_data <- 
+  data |> 
+  filter(!Assay %in% exclude_assays_controls,
+         !DAid %in% control_samples,
+         !Assay %in% replicate_assays) |> 
+  select(DAid, Assay, NPX) |> 
+  pivot_wider(names_from = Assay,
+              values_from = NPX) |>  
+  column_to_rownames("DAid") |> 
+  scale() |> 
+  cor(use = "complete.obs") 
+
+olink_targets <- 
+  read_csv("data/olink_targets/overlap_olink_platforms.csv")
+
+annotation <- 
+  olink_targets |> 
+  left_join(ht_lod |> 
+              mutate(Block = as.numeric(Block)) |> 
+              select(Assay, Percentage_under_LOD, Block), by = "Assay") |>
+  filter(!is.na(Assay)) |> 
+  mutate(Pre_analytical_variation = ifelse(Assay %in% cor_proteins$value, "Yes", "No")) |> 
+  column_to_rownames("Assay")
+
+# All proteins
+cor_data |> 
+  pheatmap(show_rownames = F,
+           show_colnames = F,
+           annotation_col = annotation,
+           annotation_colors = list("Pre_analytical_variation" = pal_binary,
+                                    "Platform" = pal_platforms)) |> 
+  as.ggplot()
+
+ggsave(savepath("correlation_all_proteins.png"), h = 8, w = 10)
+
+# Explore 1.5K
+explore_1 <- 
+  olink_targets |> 
+  filter(Platform == "1.5K") |> 
+  pull(Assay)
+
+explore_1_filt  <- explore_1[explore_1 %in% colnames(cor_data)]
+
+cor_data[explore_1_filt,explore_1_filt] |> 
+  pheatmap(show_rownames = F,
+           show_colnames = F,
+           annotation_col = annotation,
+           annotation_colors = list("Pre_analytical_variation" = pal_binary,
+                                    "Platform" = pal_platforms)) |> 
+  as.ggplot()
+
+ggsave(savepath("correlation_all_proteins_1K.png"), h = 6, w = 8)
+
+# Explore 3K
+explore_2 <- 
+  olink_targets |> 
+  filter(Platform == "3K") |> 
+  pull(Assay)
+
+explore_2_filt  <- explore_2[explore_2 %in% colnames(cor_data)]
+
+annotation_2 <- 
+  annotation |> 
+  select(-Pre_analytical_variation, -Platform)
+
+cor_data[explore_2_filt,explore_2_filt] |> 
+  pheatmap(show_rownames = F,
+           show_colnames = F,
+           annotation_col = annotation_2) |> 
+  as.ggplot()
+
+ggsave(savepath("correlation_all_proteins_3K.png"), h = 6, w = 8)
+
+# Explore HT
+explore_3 <- 
+  olink_targets |> 
+  filter(Platform == "HT") |> 
+  pull(Assay)
+
+explore_3_filt  <- explore_3[explore_3 %in% colnames(cor_data)]
+
+cor_data[explore_3_filt,explore_3_filt] |> 
+  pheatmap(show_rownames = F,
+           show_colnames = F,
+           annotation_col = annotation_2) |> 
+  as.ggplot()
+
+ggsave(savepath("correlation_all_proteins_HT.png"), h = 6, w = 8)
+
+```
+
+
+## WCGNA
+
+```{r}
+
 ```
 
 
