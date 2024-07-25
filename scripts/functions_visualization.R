@@ -1,7 +1,234 @@
 
 # Functions for visualization
 library(ggrepel)
+library(tidytext)
+library(embed)
+library(ggbeeswarm)
+library(patchwork)
+library(ggsci)
+library(eulerr)
+library(ggplotify)
 
+do_pca <- function(data,
+                   meta = NULL,
+                   variable = NULL,
+                   wide = T,
+                   impute = T,
+                   plots = F) {
+  if (wide) {
+    data_w <- data
+  } else {
+    data_w <-
+      data |>
+      select(Sample = DAid, Assay, NPX) |>
+      pivot_wider(values_from = NPX,
+                  names_from = Assay)
+  }
+  
+  if (impute) {
+    pca_rec <-
+      recipe( ~ ., data = data_w) %>%
+      update_role(Sample, new_role = "id")  |>
+      step_normalize(all_predictors()) |>
+      step_impute_knn(all_predictors()) |>
+      step_pca(all_predictors())
+    
+    pca_prep <- prep(pca_rec)
+    
+    tidied_pca <- tidy(pca_prep, 3)
+    
+  } else {
+    pca_rec <-
+      recipe( ~ ., data = data_w) %>%
+      update_role(Sample, new_role = "id")  |>
+      step_normalize(all_predictors()) |>
+      step_pca(all_predictors())
+    
+    pca_prep <- prep(pca_rec)
+    
+    tidied_pca <- tidy(pca_prep, 2)
+  }
+  loadings_data <-
+    tidied_pca |>
+    rename(Assay = terms,
+           Value = value,
+           PC = component)
+  
+  pca_res <-  juice(pca_prep)
+  
+  if (plots) {
+    # Loadings plot
+    loadings_plot <-
+      tidied_pca %>%
+      filter(component %in% paste0("PC", 1:4)) %>%
+      group_by(component) %>%
+      top_n(8, abs(value)) %>%
+      ungroup() %>%
+      mutate(terms = reorder_within(terms, abs(value), component)) %>%
+      ggplot(aes(abs(value), terms, fill = value > 0)) +
+      geom_col() +
+      facet_wrap( ~ component, scales = "free_y") +
+      scale_y_reordered() +
+      labs(x = "Absolute value of contribution",
+           y = NULL, fill = "Positive?") +
+      theme_hpa()
+    
+    # PCA plot
+    pca_plot <-
+      pca_res %>%
+      left_join(meta |> 
+                  rename(Sample = DAid), by = "Sample") %>%
+      ggplot(aes(PC1, PC2)) +
+      geom_point(aes(color = !!sym(variable)), alpha = 0.7, size = 2) +
+      labs(color = NULL) +
+      theme_hpa() +
+      labs(color = variable)
+    
+    return(
+      list(
+        "pca_res" = pca_res,
+        "loadings" = loadings_data,
+        "pca_plot" = pca_plot,
+        "loadings_plot" = loadings_plot
+      )
+    )
+  } else {
+    return(list("pca_res" = pca_res,
+                "loadings" = loadings_data))
+  }
+  
+}
+
+
+do_umap <- function(data,
+                    meta = NULL,
+                    variable = NULL,
+                    wide = T,
+                    impute = T,
+                    plots = F,
+                    n_neighbors = 15) {
+  if (wide) {
+    data_w <- data
+  } else {
+    data_w <-
+      data |>
+      select(Sample = DAid, Assay, NPX) |>
+      pivot_wider(values_from = NPX,
+                  names_from = Assay)
+  }
+  
+  if (impute) {
+    umap_rec <-
+      recipe( ~ ., data = data_w) %>%
+      update_role(Sample, new_role = "id")  |>
+      step_normalize(all_predictors()) |>
+      step_impute_knn(all_predictors()) |>
+      step_umap(all_predictors(), neighbors = n_neighbors)
+    
+    umap_prep <- prep(umap_rec)
+    
+  } else {
+    umap_rec <-
+      recipe( ~ ., data = data_w) %>%
+      update_role(Sample, new_role = "id")  |>
+      step_normalize(all_predictors()) |>
+      step_umap(all_predictors(), neighbors = n_neighbors)
+    
+    umap_prep <- prep(umap_rec)
+    
+  }
+  
+  umap_res <-  juice(umap_prep)
+  
+  if (plots) {
+    # Loadings plot
+    umap_plot <-
+      umap_res |>
+      left_join(meta |> 
+                  rename(Sample = DAid), by = "Sample") |>
+      ggplot(aes(UMAP1, UMAP2, color = !!sym(variable))) +
+      geom_point(alpha = 0.7, size = 2) +
+      theme_hpa()
+    
+    return(list("umap_res" = umap_res,
+                "umap_plot" = umap_plot))
+  } else {
+    return(umap_res)
+  }
+  
+}
+
+# Themes
+theme_hpa <-
+  function(angled = F,
+           axis_x = T,
+           axis_y = T,
+           facet_title = T) {
+    t <-
+      theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.spacing = unit(0.2, "lines"),
+        panel.background = element_rect(fill = "white"),
+        panel.border = element_blank(),
+        plot.title = element_text(
+          face = "bold",
+          size = rel(1),
+          hjust = 0.5
+        ),
+        plot.subtitle = element_text(
+          face = "bold",
+          hjust = 0.5,
+          size = rel(1),
+          vjust = 1
+        ),
+        axis.title = element_text(face = "bold", size = rel(1)),
+        axis.ticks.length = unit(.25, "cm"),
+        axis.line = element_line(linewidth = 0.5),
+        axis.text = element_text(size = rel(1), color = 'black'),
+        legend.key = element_blank(),
+        legend.position = "right",
+        legend.text = element_text(size = rel(0.8)),
+        legend.key.size = unit(0.7, "cm"),
+        legend.title = element_text(size = rel(1)),
+        plot.margin = unit(c(10, 5, 5, 5), "mm"),
+        strip.background = element_rect(colour = "grey90", fill = "grey90"),
+        strip.text = element_text(face = "bold")
+      )
+    
+    if (angled) {
+      t <-
+        t + theme(axis.text.x = element_text(
+          angle = 90,
+          vjust = 0.5,
+          hjust = 1
+        ))
+    }
+    
+    if (axis_x == F) {
+      t <- t +
+        theme(
+          axis.text.x = element_blank(),
+          axis.ticks.x = element_blank(),
+          axis.line.x = element_blank(),
+          axis.title.x = element_blank()
+        )
+    }
+    
+    if (axis_y == F) {
+      t <- t +
+        theme(
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          axis.line.y = element_blank(),
+          axis.title.y = element_blank()
+        )
+    }
+    if (facet_title == F) {
+      t <- t + theme(strip.text = element_blank())
+    }
+    return(t)
+  }
 ## Generate volcano plot from differential expression results                                                                                                                                  
 plot_volcano <- function(de_results, cutoff = 0) {
   

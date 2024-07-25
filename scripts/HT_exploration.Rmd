@@ -908,6 +908,8 @@ ggsave(savepath("raincloud_plate.png"), h = 9, w = 20)
 
 ## UMAP
 
+### UMAP for all proteins
+
 ```{r}
 data_ht |> 
   distinct(SampleID) |> 
@@ -1033,6 +1035,26 @@ umap_data|>
   ggtitle("Intensity normalization") 
 
 ggsave(savepath("UMAP_HT_BAMSE.png"), h = 8, w = 10)
+```
+
+### tidymodels
+
+```{r}
+input_umap_data <- 
+  data_ht |>
+  filter(SampleType == "SAMPLE", 
+         !Assay %in% control_assays) |> 
+  left_join(id_mapping, by = "SampleID") |>
+  filter(!DAid %in% c("DA12362","DA12363","DA10197")) |> 
+  select(DAid, OlinkID, NPX) |>
+  pivot_wider(names_from = "OlinkID", values_from = "NPX")
+
+umap_all_proteins <- 
+  do_umap(data = input_umap_data,
+        meta = manifest, 
+        variable = Disease,
+        plots = T)
+
 ```
 
 # Protein co-expression
