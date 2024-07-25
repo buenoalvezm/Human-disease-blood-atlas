@@ -230,7 +230,17 @@ ht_lod |>
 ggsave(savepath("assays_lod_ht_added_secretome.png"), h = 5, w = 6)
 ```
 
-## Check if LOD is random?
+### Histogram
+
+```{r}
+phase1_lod |> 
+  ggplot(aes(Percentage_under_LOD)) +
+  geom_histogram() +
+  theme_hpa() +
+  ylab("Number of proteins")
+```
+
+### Check if LOD is random
 
 ```{r}
 ht_lod |> 
@@ -1054,6 +1064,8 @@ umap_all_proteins <-
         meta = manifest, 
         variable = Disease,
         plots = T)
+
+umap_all_proteins
 
 ```
 

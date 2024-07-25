@@ -8,6 +8,7 @@ library(patchwork)
 library(ggsci)
 library(eulerr)
 library(ggplotify)
+library(pheatmap)
 
 do_pca <- function(data,
                    meta = NULL,
