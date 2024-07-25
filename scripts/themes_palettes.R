@@ -23,6 +23,17 @@ pal_binary <-
   c("Yes" = "red",
     "No" = "grey")
 
+pal_secreted <- c("Secreted to blood" = "#B30000", 
+                  "Secreted in brain" = "#FFDD00", 
+                  "Secreted to digestive system" = "#1280C4", 
+                  "Secreted in male reproductive system" = "#95D4F5", 
+                  "Secreted in female reproductive system" = "#F8BDD7", 
+                  "Secreted to extracellular matrix"  = "#7F6A9C", 
+                  "Secreted in other tissues" = "#FFD480", 
+                  "Secreted - unknown location" = "#A1A8AA", 
+                  "Intracellular and membrane" = "#F9A266", 
+                  "Unknown" = "grey80")
+
 # Themes
 theme_hpa <- 
   function(angled = F, axis_x = T, axis_y = T, facet_title = T) {
