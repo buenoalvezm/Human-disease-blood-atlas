@@ -688,3 +688,90 @@ protein_summary <- function(protein) {
 }
 
 
+plot_boxplot <- function(proteins,
+                         data,
+                         metadata,
+                         platform = "HT",
+                         title = "") {
+  if (platform == "HT") {
+    data_filtered <-
+      data |>
+      filter(Assay %in% proteins) |>
+      select(DAid, Assay, NPX) |>
+      left_join(metadata |>
+                  select(DAid, Cohort, `PI - sample owner`, Disease, Diagnose),
+                by = "DAid") |>
+      mutate(
+        Cohort = paste(Cohort, `PI - sample owner`, sep = "_"),
+        Diagnose = ifelse(
+          Diagnose == "healthy",
+          paste(Diagnose, Cohort, sep = "_"),
+          Diagnose
+        )
+      ) |> 
+      filter(!is.na(Diagnose))
+     
+    order <-
+      data_filtered |>
+      distinct(Cohort, Diagnose) |>
+      mutate(Cohort = factor(Cohort, levels = names(pal_phase2))) |>
+      arrange(Cohort) |>
+      pull(Diagnose)
+    
+    if (length(proteins) > 1) {
+      boxplot <- 
+        data_filtered |>
+        mutate(Diagnose = factor(Diagnose, levels = order)) |>
+        filter(!grepl("back-up", Diagnose)) |>
+        ggplot(aes(
+          Diagnose,
+          NPX,
+          fill = Cohort,
+          color = Cohort
+        )) +
+        geom_quasirandom(alpha = 0.7) +
+        geom_boxplot(
+          alpha = 0.3,
+          outlier.color = NA,
+          color = "grey20"
+        ) +
+        scale_color_manual(values = pal_phase2) +
+        scale_fill_manual(values = pal_phase2) +
+        facet_wrap( ~ Assay, scales = "free_y") +
+        theme_hpa(angled = T) +
+        xlab("") +
+        ggtitle(title)
+      
+    } else {
+      boxplot <- 
+        data_filtered |>
+        mutate(Diagnose = factor(Diagnose, levels = order)) |>
+        filter(!grepl("back-up", Diagnose)) |>
+        ggplot(aes(
+          Diagnose,
+          NPX,
+          fill = Cohort,
+          color = Cohort
+        )) +
+        geom_quasirandom(alpha = 0.7) +
+        geom_boxplot(
+          alpha = 0.3,
+          outlier.color = NA,
+          color = "grey20"
+        ) +
+        scale_color_manual(values = pal_phase2) +
+        scale_fill_manual(values = pal_phase2) +
+        theme_hpa(angled = T) +
+        ggtitle(title) +
+        xlab("")
+    }
+    
+    
+  } else if (platform == "1.5K") {
+    boxplot <- ggplot()
+  } else {
+    stop("Platform not recognized")
+  }
+  
+  return(boxplot)
+}
