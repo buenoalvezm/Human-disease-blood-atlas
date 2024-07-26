@@ -33,25 +33,22 @@ manifest <- import_df("data/samples_2024-04-19.xlsx")
 concentration_info <- import_df("data/concentrations_blood-atlas-build.xlsx")
 data_phase1 <-  import_df("data/final_data/data_NPX_cohort.csv")
 data_NPX_phase1 <- import_df(file = "data/final_data/final_data_phase1.csv") 
-```
 
 # Targets 3 platforms
-
-```{r}
 targets_ht <- 
   import_df("data/olink_targets/targets_ht.csv")
 targets_3072 <- 
   import_df("data/olink_targets/targets_3k.xlsx")
 targets_1463 <- 
-  data_NPX_phase1 <- 
+  data_NPX_phase1 |> 
   distinct(Assay)
+targets <-  import_df("data/olink_targets/overlap_olink_platforms.csv")
 
-plot_euler()
 
+# HPA
+hpa <- read_tsv("data/hpa/proteinatlas.tsv")
+cor_proteins <- import_df("data/processed/hooking.correlation.above.0.7.csv")
 ``` 
-
-
-
 
 # Compare phase 1 and phase 2 assays
 
@@ -64,7 +61,6 @@ data_ht |>
 data_phase1 |> 
   distinct(Assay, OlinkID)|> 
   filter(Assay == "IL10")
-
 ```
 
 
@@ -79,12 +75,12 @@ olink_meta <-
   distinct(Assay, OlinkID, UniProt, AssayType, Block)
 
 # Number of plates per sample
-data_ht |> 
-  filter(SampleType == "SAMPLE") |>
-  separate(SampleID, into = c("DAid", "Plate"), sep = "-", remove = F) |> 
-  group_by(DAid) |> 
-  count(Plate) |> 
-  arrange(-n)
+# data_ht |> 
+#   filter(SampleType == "SAMPLE") |>
+#   separate(SampleID, into = c("DAid", "Plate"), sep = "-", remove = F) |> 
+#   group_by(DAid) |> 
+#   count(Plate) |> 
+#   arrange(-n)
 
 id_mapping <- 
   data_ht |> 
@@ -113,6 +109,8 @@ common_assays <-
 
 ## LOD
 
+### Calculate
+
 ```{r}
 data_ht_lod <- olink_lod(data = data_ht, lod_method = "NCLOD")
 
@@ -137,12 +135,27 @@ ht_lod <-
   mutate(Percentage_under_LOD = (n / n_samples)* 100)  |> 
   left_join(data_ht |> 
               distinct(Assay, Block), by = "Assay") 
+```
 
+### Histogram & density
+
+```{r}
 ht_lod |> 
   ggplot(aes(Percentage_under_LOD)) +
   geom_density() +
   theme_hpa()
 
+phase1_lod |> 
+  ggplot(aes(Percentage_under_LOD)) +
+  geom_histogram() +
+  theme_hpa() +
+  ylab("Number of proteins")
+```
+
+
+### Blocks & Explore
+
+```{r}
 bloc_lod <- 
   ht_lod |> 
   ggplot(aes(Block, 
@@ -170,20 +183,37 @@ explore_lod <-
 
 bloc_lod + explore_lod
 ggsave(savepath("lod.png"), h = 5, w = 10)  
+```
+### Across platforms
 
-hpa <- read_tsv("data/hpa/proteinatlas.tsv")
+```{r}
+ht_lod |> 
+  filter(!Assay %in% control_assays) |>
+  left_join(targets, by = "Assay") |> 
+  filter(!is.na(Platform)) |> 
+  ggplot(aes(Percentage_under_LOD, fill = Platform)) +
+  geom_histogram() +
+  scale_fill_manual(values = pal_platforms) +
+  theme_hpa()
 
-pal_secreted <- c("Secreted to blood" = "#B30000", 
-                  "Secreted in brain" = "#FFDD00", 
-                  "Secreted to digestive system" = "#1280C4", 
-                  "Secreted in male reproductive system" = "#95D4F5", 
-                  "Secreted in female reproductive system" = "#F8BDD7", 
-                  "Secreted to extracellular matrix"  = "#7F6A9C", 
-                  "Secreted in other tissues" = "#FFD480", 
-                  "Secreted - unknown location" = "#A1A8AA", 
-                  "Intracellular and membrane" = "#F9A266", 
-                  "Unknown" = "grey80")
+ggsave(savepath("LOD_platform.png"), h = 5, w = 6)
 
+ht_lod |> 
+  filter(!Assay %in% control_assays) |>
+  left_join(targets, by = "Assay") |> 
+  filter(!is.na(Platform)) |> 
+  ggplot(aes(Percentage_under_LOD, fill = Platform)) +
+  geom_histogram() +
+  facet_wrap(~Platform, ncol = 1) +
+  scale_fill_manual(values = pal_platforms) +
+  theme_hpa()
+
+ggsave(savepath("LOD_platform_facet.png"), h = 7, w = 6)
+```
+
+### Secretome
+
+```{r}
 ht_lod |> 
   mutate(Percentage_under_LOD = case_when(
     Percentage_under_LOD >= 0 & Percentage_under_LOD < 25 ~ "0-25%",
@@ -230,17 +260,112 @@ ht_lod |>
 ggsave(savepath("assays_lod_ht_added_secretome.png"), h = 5, w = 6)
 ```
 
-### Histogram
-
-```{r}
-phase1_lod |> 
-  ggplot(aes(Percentage_under_LOD)) +
-  geom_histogram() +
-  theme_hpa() +
-  ylab("Number of proteins")
-```
 
 ### Check if LOD is random
+
+```{r}
+assays_above_75 <- 
+  ht_lod |> 
+  filter(Percentage_under_LOD > 75) |>
+  pull(Assay)
+
+phase2_lod_disease_dat <- 
+  data_ht_lod |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(!AssayType %in% control_assays) |> 
+  select(DAid, Assay, NPX, LOD) |> 
+  mutate(under_LOD = ifelse(NPX < LOD, "Yes", "No")) |> 
+  left_join(manifest |> 
+              mutate(Disease = paste(Cohort,Diagnose,sep = "_")) |> 
+              select(DAid, Disease), by = "DAid")  |> 
+  group_by(Disease) |> 
+  mutate(n = n_distinct(DAid)) 
+
+samples_disease <- 
+  phase2_lod_disease_dat |> 
+  filter(!is.na(Disease),
+         Disease != "CTRL_NA",
+         !Assay %in% replicate_assays,
+         !grepl("back-up", Disease)) |>
+  distinct(Disease, n)
+
+phase2_lod_disease <- 
+  phase2_lod_disease_dat |>
+  filter(!is.na(Disease),
+         Disease != "CTRL_NA",
+         !Assay %in% replicate_assays,
+         !grepl("back-up", Disease)) |> 
+  group_by(Assay, Disease) |> 
+  count(under_LOD, .drop = FALSE) |> 
+  filter(under_LOD == "Yes") |>
+  rename(n_under = n) |> 
+  left_join(samples_disease, by = "Disease") |> 
+  mutate(Percentage_under_LOD = (n_under / n)* 100)  |> 
+  arrange(-Percentage_under_LOD)
+
+annotation <- 
+  manifest |> 
+  mutate(Disease = paste(Cohort,Diagnose,sep = "_"),
+         Cohort = paste(Cohort,`PI - sample owner`,sep = "_")) |>
+  filter(DAid %in% phase2_lod_disease_dat$DAid) |> 
+  distinct(Disease, Cohort) |> 
+  column_to_rownames("Disease")
+
+phase2_lod_disease |> 
+  filter(Assay %in% assays_above_75) |> 
+  filter(!is.na(Disease)) |> 
+  select(Assay, Disease, Percentage_under_LOD) |>
+  pivot_wider(names_from = Assay, 
+              values_from = Percentage_under_LOD,
+              values_fill = 0) |> 
+  column_to_rownames("Disease") |> 
+  t() |> 
+  pheatmap(color=colorRampPalette(c("navy", "white"))(50),
+           annotation_col = annotation,
+           show_rownames = F,
+           annotation_colors = list("Cohort" = pal_phase2)) |> 
+  as.ggplot() +
+  ggtitle("2802 proteins with >75% of values under LOD")
+
+ggsave(savepath("heatmap_LOD_P2.png"), h = 6, w = 8)
+
+
+phase2_lod_disease |> 
+  filter(Percentage_under_LOD < 50) |> 
+  ungroup() |> 
+  distinct(Assay)
+
+#2803 - 2358
+
+proteins_include <- 
+  phase2_lod_disease |> 
+  filter(Percentage_under_LOD < 75) |> 
+  ungroup() |> 
+  distinct(Assay) |> 
+  pull()
+
+phase2_lod_disease |> 
+  filter(#Assay %in% assays_above_75,
+         Assay %in% proteins_include,
+         !is.na(Disease)) |> 
+  select(Assay, Disease, Percentage_under_LOD) |> 
+  pivot_wider(names_from = Assay, 
+              values_from = Percentage_under_LOD,
+              values_fill = 0) |> 
+  column_to_rownames("Disease") |> 
+  t() |> 
+  pheatmap(color=colorRampPalette(c("navy", "white"))(50),
+           annotation_col = annotation,
+           show_rownames = F,
+           annotation_colors = list("Cohort" = pal_phase2)) |> 
+  as.ggplot() +
+  ggtitle("2832 proteins with >75% of values under LOD in all diseases")
+
+ggsave(savepath("heatmap_LOD_P2_include_disease_75.png"), h = 6, w = 8)
+
+
+```
+
 
 ```{r}
 ht_lod |> 
@@ -467,12 +592,6 @@ ggsave(savepath("da_phase2_cohorts.png"), h = 6, w = 6)
 
 # Replicate samples
 
-## Plate correlations
-
-```{r}
-
-```
-
 ## Bridging samples
 
 ```{r}
@@ -660,6 +779,31 @@ ggsave(savepath("cor_distribution_lod_binary.png"), h = 9 , w = 8)
 
 ```
 
+### Correlation - LOD
+
+```{r}
+
+cor_p1_p2 |> 
+  left_join(ht_lod |> 
+              select(Assay, Percentage_under_LOD), by = "Assay") |> 
+  ggplot(aes(cor, Percentage_under_LOD, color = Block)) +
+  geom_point() +
+  scale_color_brewer(direction = -1) +
+  theme_hpa()
+
+ggsave(savepath("correlation_lod.png"), h = 6, w = 6)
+
+cor_p1_p2 |> 
+  left_join(ht_lod |> 
+              select(Assay, Percentage_under_LOD), by = "Assay") |>
+  mutate(Pre_analytical_variation = ifelse(Assay %in% cor_proteins$value, "Yes", "No")) |>
+  ggplot(aes(cor, Percentage_under_LOD, color = Pre_analytical_variation)) +
+  geom_point() +
+  scale_color_manual(values = pal_binary) +
+  theme_hpa()
+
+ggsave(savepath("correlation_lod_preanalytical.png"), h = 6, w = 6)
+```
 
 
 BDG2_Fredrik Edfors -> DAid not in manifest
@@ -905,6 +1049,57 @@ raincloud_data |>
 ggsave(savepath("raincloud_plate.png"), h = 9, w = 20)
 
 
+```
+
+# Pre-analytical variation exploration
+
+```{r}
+
+ann <- 
+  manifest |> 
+  filter(DAid %in% data$DAid) |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |> 
+  select(DAid, Cohort) |> 
+  column_to_rownames("DAid")
+
+data |> 
+  filter(Assay %in% cor_proteins$value,
+         !DAid %in% control_samples) |> 
+  select(DAid, Assay, NPX) |> 
+  pivot_wider(names_from = Assay, values_from = NPX)  |> 
+  column_to_rownames("DAid") |> 
+  scale() |> 
+  pheatmap(show_colnames = F, 
+           show_rownames = F,
+           clustering_method = "ward.D2",
+           annotation_row =  ann,
+           annotation_colors = list("Cohort" = pal_phase2)) |> 
+  as.ggplot()
+
+ggsave(savepath("prenalytical_proteins_ht.png"), h = 7, w = 10)
+
+data |> 
+  filter(!Assay %in% cor_proteins$value,
+         !Assay %in% replicate_assays,
+         !DAid %in% control_samples) |> 
+  select(DAid, Assay, NPX) |> 
+  pivot_wider(names_from = Assay, values_from = NPX)  |> 
+  column_to_rownames("DAid") |> 
+  #scale() |> 
+  pheatmap(show_colnames = F, 
+           show_rownames = F,
+           clustering_method = "ward.D2",
+           annotation_row =  ann,
+           annotation_colors = list("Cohort" = pal_phase2)) |> 
+  as.ggplot()
+
+ggsave(savepath("no_prenalytical_proteins_ht.png"), h = 7, w = 10)
+
+plot_boxplot(proteins = "TRAF2", 
+             data = data,
+             metadata = manifest, 
+             platform = "HT",
+             title = "Example protein")
 ```
 
 
