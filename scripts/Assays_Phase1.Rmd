@@ -137,11 +137,13 @@ n_diseases <-
 
 phase1_lod_disease |> 
   ungroup() |> 
-  filter(Percentage_under_LOD > 50,
+  filter(Percentage_under_LOD > 75,
          Assay %in% assays_above_75) |> 
   group_by(Assay) |> 
   summarize(n = n_distinct(Disease)) |> 
-  arrange(-n)
+  arrange(-n) |> 
+  filter(n == 85)
+
 ```
 
 ## Secretome
@@ -178,7 +180,7 @@ data <-
 sample_umap_all_proteins <- 
   do_umap(data = data,
         meta = manifest,
-        variable = Disease,
+        variable = "Disease",
         plot = T,
         wide = F)
 ```
@@ -186,7 +188,14 @@ sample_umap_all_proteins <-
 ## Protein
 
 ```{r}
+data_proteins <- 
+  data_NPX_phase1 |> 
+  select(DAid = Assay, Assay = DAid, NPX)
 
+protein_umap <- 
+  do_umap(data = data_proteins,
+        plot = F,
+        wide = F)
 ```
 
 
