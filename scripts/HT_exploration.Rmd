@@ -311,6 +311,7 @@ annotation <-
   distinct(Disease, Cohort) |> 
   column_to_rownames("Disease")
 
+
 phase2_lod_disease |> 
   filter(Assay %in% assays_above_75) |> 
   filter(!is.na(Disease)) |> 
@@ -359,12 +360,48 @@ phase2_lod_disease |>
            show_rownames = F,
            annotation_colors = list("Cohort" = pal_phase2)) |> 
   as.ggplot() +
-  ggtitle("2832 proteins with >75% of values under LOD in all diseases")
+  ggtitle("2832 proteins with < 75% of values under LOD in at least one disease")
 
 ggsave(savepath("heatmap_LOD_P2_include_disease_75.png"), h = 6, w = 8)
 
 
 ```
+
+### General heatmap
+
+```{r}
+
+# Secretome & overall LOD
+annotation_col <- 
+  ht_lod |> 
+  select(Assay, Percentage_under_LOD, Block) |> 
+  left_join(hpa |> 
+              select(Gene, `Secretome location`), by = c("Assay" = "Gene")) |> 
+  mutate(`Secretome location` = ifelse(is.na(`Secretome location`), "Unknown", `Secretome location`)) |> 
+  mutate(Block = as.numeric(Block)) |> 
+  column_to_rownames("Assay")
+
+phase2_lod_disease |> 
+  filter(!is.na(Disease)) |> 
+  select(Assay, Disease, Percentage_under_LOD) |> 
+  pivot_wider(names_from = Assay, 
+              values_from = Percentage_under_LOD,
+              values_fill = 0) |> 
+  column_to_rownames("Disease") |> 
+ # t() |> 
+  pheatmap(color=colorRampPalette(c("grey40", "white"))(50),
+           annotation_row = annotation,
+           annotation_col = annotation_col,
+           show_colnames = F,
+           cutree_cols = 4,
+           annotation_colors = list("Cohort" = pal_phase2,
+                                    "Secretome location" = pal_secreted)) |> 
+  as.ggplot() 
+
+ggsave(savepath("heatmap_LOD_P2_all.png"), h = 4, w = 12)
+
+```
+
 
 
 ```{r}
@@ -1368,6 +1405,26 @@ ggsave(savepath("correlation_all_proteins_HT.png"), h = 6, w = 8)
 
 ```
 
+### Distribution
+
+```{r}
+cor_data <- 
+  data |> 
+  filter(!Assay %in% exclude_assays_controls,
+         !DAid %in% control_samples,
+         !Assay %in% replicate_assays) |> 
+  select(DAid, Assay, NPX) |> 
+  pivot_wider(names_from = Assay,
+              values_from = NPX) |>  
+  column_to_rownames("DAid") |> 
+  scale() |> 
+  cor(use = "complete.obs") 
+
+olink_targets <- 
+  read_csv("data/olink_targets/overlap_olink_platforms.csv")
+
+
+```
 
 ## WCGNA
 
@@ -1748,5 +1805,34 @@ data |>
 
 ggsave(savepath("da_phase2_cohorts_delivery1.png"), h = 6, w = 6)
 
+```
+
+# Relevant assays
+
+## COL9A1
+
+```{r}
+data |> 
+  filter(Assay == "COL9A1") |> 
+  left_join(manifest, by = "DAid") |>
+  filter(Cohort %in% "BAMS") |> 
+  filter(!grepl("back-up", Diagnose)) |> 
+  mutate(Age_group = case_when(grepl("^4_", Diagnose) ~ 4,
+                             grepl("8_", Diagnose) ~ 8,
+                             grepl("16_", Diagnose) ~ 16,
+                             grepl("24_", Diagnose) ~ 24), 
+         Age_group = factor(Age_group, levels = c(4, 8, 16, 24))) |> 
+  ggplot(aes(Age_group, PCNormalizedNPX, fill = Age_group, color = Age_group)) +
+  geom_quasirandom(alpha = 0.7) +
+  geom_boxplot(alpha = 0.3, outlier.color = NA, color = "grey20") +
+  scale_color_viridis_d() +
+  scale_fill_viridis_d() +
+  #scale_color_manual(values = pal_phase2) +
+  #scale_fill_manual(values = pal_phase2) +
+  #facet_wrap(~Assay, scales = "free_y") +
+  theme_hpa(angled = T) +
+  ggtitle("BAMSE - COL9A1")
+
+ggsave(savepath("BAMSE_COL9A1.png"), h = 5, w = 5)
 ```
 
