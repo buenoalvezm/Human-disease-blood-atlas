@@ -381,7 +381,8 @@ annotation_col <-
   mutate(Block = as.numeric(Block)) |> 
   column_to_rownames("Assay")
 
-phase2_lod_disease |> 
+gg_heatmap <- 
+  phase2_lod_disease |> 
   filter(!is.na(Disease)) |> 
   select(Assay, Disease, Percentage_under_LOD) |> 
   pivot_wider(names_from = Assay, 
@@ -398,7 +399,39 @@ phase2_lod_disease |>
                                     "Secretome location" = pal_secreted)) |> 
   as.ggplot() 
 
-ggsave(savepath("heatmap_LOD_P2_all.png"), h = 4, w = 12)
+# Adjust the layout by increasing margins
+gg_heatmap <- gg_heatmap + theme(plot.margin = margin(1, 1, 2, 2, "cm"))
+
+# Display the plot
+print(gg_heatmap)
+
+ggsave(savepath("heatmap_LOD_P2_all_legend.png"), h = 8, w = 14)
+ggsave(savepath("heatmap_LOD_P2_all.png"), h = 6, w = 16)
+
+
+phase2_lod_disease |> 
+  filter(Percentage_under_LOD < 80) |> 
+  group_by(Assay) |> 
+  summarise(n = n_distinct(Disease)) |> 
+  arrange(-n) |> 
+  filter(n == 18) |> 
+  nrow()
+
+phase2_lod_disease |> 
+  filter(Percentage_under_LOD < 80) |> 
+  group_by(Assay) |> 
+  summarise(n = n_distinct(Disease)) |> 
+  arrange(-n) |> 
+  filter(n < 18) |> 
+  nrow()
+
+
+phase2_lod_disease |>
+   filter(Percentage_under_LOD > 80) |> 
+  group_by(Assay) |> 
+  summarise(n = n_distinct(Disease))  |> 
+  filter(n == 18) |> 
+  nrow()
 
 ```
 
