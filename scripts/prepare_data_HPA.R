@@ -2,7 +2,7 @@
 library(tidyverse)
 
 # Read in data
-resource_meta <- read_csv("data/processed/final_data/metadata_resource_20240604.csv") 
+resource_meta <- read_csv("data/processed/final_data/metadata_resource_20240715.csv") 
 resource_data <- read_csv(file = "data/processed/final_data/data_resource_20240604.csv") 
 
 
@@ -10,12 +10,13 @@ resource_data <- read_csv(file = "data/processed/final_data/data_resource_202406
 resource_meta |> 
   filter(DAid %in% resource_data$DAid) |> 
   select(DAid, Class, Disease, Subcategory, Age, Sex, BMI) |> 
+  mutate(Disease = ifelse(Disease == "Scleroderma", "Systemic sclerosis", Disease)) |>
   write_tsv("data/data_to_IT/da_phase1_metadata.tsv")
 
 # Save data
 resource_data |> 
   filter(DAid %in% resource_meta$DAid) |> 
-  select(DAid, OlinkID, NPX) |> 
+  select(DAid, OlinkID, NPX, LOD) |> 
   write_tsv("data/data_to_IT/da_phase1_data.tsv")
 
 # Save disease class order
@@ -23,6 +24,7 @@ class_order <- c("Healthy", "Cardiovascular","Metabolic","Cancer","Psychiatric",
 disease_class_order <-
   resource_meta |> 
   distinct(Class, Disease, Cohort) |> 
+  mutate(Disease = ifelse(Disease == "Scleroderma", "Systemic sclerosis", Disease)) |>
   mutate(Class = factor(Class, levels = class_order)) |> 
   arrange(Class, Cohort) |> 
   pull(Disease) |>
