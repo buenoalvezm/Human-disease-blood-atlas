@@ -32,7 +32,7 @@ pal_secreted <- c("Secreted to blood" = "#B30000",
                   "Secreted in other tissues" = "#FFD480", 
                   "Secreted - unknown location" = "#A1A8AA", 
                   "Intracellular and membrane" = "#F9A266", 
-                  "Immunoglobulin genes" = "red",
+                  "Immunoglobulin genes" = "#6BA592",
                   "Unknown" = "grey80")
 
 # Themes
