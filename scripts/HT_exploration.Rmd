@@ -123,18 +123,92 @@ n_samples <-
   distinct(SampleID) |> 
   nrow()
 
+#Check NA LOD
+
+# data_ht_lod |> 
+#   filter(is.na(LOD),
+#          !SampleType %in% control_sample_types,
+#          !AssayType %in% control_assays) |> 
+#   count(SampleID) |> 
+#   count(Assay) |> 
+#   arrange(-n)
+
+
 ht_lod <- 
-  data_ht_lod |> 
+  data_ht_lod %>%
   filter(!SampleType %in% control_sample_types,
          !AssayType %in% control_assays,
-         !Assay %in% c("GBP1", "MAP2K1")) |> 
+         !Assay %in% c("GBP1", "MAP2K1")) %>%
+  filter(!is.na(LOD)) |> 
+  mutate(under_LOD = ifelse(NPX < LOD, "Yes", "No")) %>%
+  group_by(Assay) %>%
+  mutate(Percentage_under_LOD = (sum(under_LOD == "Yes") / n()) * 100) %>%
+  summarise(
+    Percentage_under_LOD = first(Percentage_under_LOD), # Ensure one value per Assay
+    has_yes = any(under_LOD == "Yes")
+  ) %>%
+  # Ensure that assays with only "No" values get "Yes" with Percentage 0
+  mutate(Percentage_under_LOD = if_else(has_yes, Percentage_under_LOD, 0)) %>%
+  ungroup() %>%
+  left_join(data_ht %>%
+              distinct(Assay, Block), by = "Assay")
+
+data_ht_lod %>%
+  filter(!SampleType %in% control_sample_types,
+         !AssayType %in% control_assays,
+         !Assay %in% c("GBP1", "MAP2K1")) %>%
+  mutate(under_LOD = ifelse(NPX < LOD, "Yes", "No")) %>%
+  group_by(Assay) %>%
+  mutate(Percentage_under_LOD = (sum(under_LOD == "Yes") / n()) * 100) %>%
+  ungroup()%>%
+  # Add "Yes" with 0 percentage for assays with only "No" values
+  group_by(Assay) %>%
+  summarise(
+    has_yes = any(under_LOD == "Yes"),
+    Percentage_under_LOD = ifelse(has_yes, first(Percentage_under_LOD), 0) # Using first() to ensure scalar
+  ) %>%
+  # Add the row with "Yes" and 0 if all were "No"
+  mutate(under_LOD = if_else(!has_yes, "Yes", "No")) %>%
+  ungroup() %>%
+  left_join(data_ht %>%
+              distinct(Assay, Block), by = "Assay")
+
+
+
+# ht_lod <- 
+#   data_ht_lod |> 
+#   filter(!SampleType %in% control_sample_types,
+#          !AssayType %in% control_assays,
+#          !Assay %in% c("GBP1", "MAP2K1")) |> 
+#   mutate(under_LOD = ifelse(NPX < LOD, "Yes", "No")) |> 
+#   group_by(Assay) |> 
+#   filter(under_LOD == "Yes") |> 
+#   mutate(Percentage_under_LOD = (n / n_samples)* 100)  |> 
+#   left_join(data_ht |> 
+#               distinct(Assay, Block), by = "Assay") 
+```
+
+### Values under LOD per sample
+
+```{r}
+data_ht_lod |> 
+   filter(!SampleType %in% control_sample_types,
+         !AssayType %in% control_assays,
+         !Assay %in% c("GBP1", "MAP2K1")) %>%
   mutate(under_LOD = ifelse(NPX < LOD, "Yes", "No")) |> 
-  group_by(Assay) |> 
-  count(under_LOD, .drop = FALSE) |> 
+  group_by(SampleID) |> 
+  count(under_LOD) |> 
   filter(under_LOD == "Yes") |> 
-  mutate(Percentage_under_LOD = (n / n_samples)* 100)  |> 
-  left_join(data_ht |> 
-              distinct(Assay, Block), by = "Assay") 
+  ggplot(aes(n)) +
+  geom_histogram() +
+  theme_hpa() +
+  ggtitle("Number of proteins under LOD per sample")
+
+ggsave(savepath("lod_proteins_per_sample.png"), width = 10, height = 6)
+  manifest |> 
+    filter(DAid == "DA10197") 
+  
+
 ```
 
 ### Histogram & density
@@ -168,6 +242,17 @@ bloc_lod <-
   scale_color_brewer(direction = -1) +
   theme_hpa()
 
+ht_lod |> 
+  filter(!Assay %in% control_assays) |>
+  ggplot(aes(Percentage_under_LOD, fill = Block)) +
+  geom_histogram() +
+  scale_fill_brewer(direction = -1) +
+  facet_wrap(~Block, ncol = 1) +
+  theme_hpa()
+
+ggsave(savepath("LOD_block_hist.png"), h = 8, w = 4)
+ggsave(savepath("LOD_platform.png"), h = 5, w = 6)
+
 # In 1,5K or not
 explore_lod <- 
   ht_lod |> 
@@ -183,6 +268,16 @@ explore_lod <-
 
 bloc_lod + explore_lod
 ggsave(savepath("lod.png"), h = 5, w = 10)  
+
+
+ht_lod |> 
+  mutate(Olink_Explore_1463 = ifelse(Assay %in% common_assays, "Yes", "No")) |> 
+  ggplot(aes(Percentage_under_LOD, fill = Olink_Explore_1463)) +
+  geom_histogram() +
+  facet_wrap(~Olink_Explore_1463, ncol = 1) +
+  theme_hpa()
+
+ggsave(savepath("LOD_platform_hist.png"), h = 6, w = 5)
 ```
 ### Across platforms
 
@@ -214,6 +309,44 @@ ggsave(savepath("LOD_platform_facet.png"), h = 7, w = 6)
 ### Secretome
 
 ```{r}
+
+ht_lod |> 
+  left_join(hpa |> 
+              select(Gene, `Secretome location`), by = c("Assay" = "Gene")) |> 
+  mutate(`Secretome location` = ifelse(is.na(`Secretome location`), "Not in secretome", `Secretome location`)) |> 
+  filter(`Secretome location` != "Immunoglobulin genes")|>
+  mutate(`Secretome location` = factor(`Secretome location`, 
+                                       levels = c("Not in secretome", names(pal_secreted)))) |> 
+  ggplot(aes(`Secretome location`, 
+             Percentage_under_LOD, 
+             color = `Secretome location`)) +
+  geom_quasirandom() +
+  geom_violin(fill = NA, 
+              color = "black",
+              draw_quantiles = 0.5) +
+  scale_color_manual(values = pal_secreted) +
+  theme_hpa(angled = T)
+
+ggsave(savepath("LOD_secretome.png"), h = 7, w = 7)
+
+hpa |> 
+  count(`Secretome location`)
+
+ht_lod |> 
+  left_join(hpa |> 
+              select(Gene, `Secretome location`), by = c("Assay" = "Gene")) |> 
+  mutate(`Secretome location` = ifelse(is.na(`Secretome location`), "Not in secretome", `Secretome location`)) |> 
+  filter(`Secretome location` != "Immunoglobulin genes")|>
+  mutate(`Secretome location` = factor(`Secretome location`, 
+                                       levels = c("Not in secretome", names(pal_secreted)))) |> 
+  ggplot(aes(Percentage_under_LOD, fill = `Secretome location`)) +
+  geom_histogram() +
+  facet_wrap(~`Secretome location`, ncol = 1, scales = "free_y") +
+  scale_fill_manual(values = pal_secreted) +
+  theme_hpa()
+
+ggsave(savepath("LOD_secretome_hist.png"), h = 10, w = 7)
+
 ht_lod |> 
   mutate(Percentage_under_LOD = case_when(
     Percentage_under_LOD >= 0 & Percentage_under_LOD < 25 ~ "0-25%",
@@ -229,7 +362,7 @@ ht_lod |>
   geom_col() +
   scale_fill_manual(values = pal_secreted) +
   theme_hpa(angled = T) +
-  ggtitle("HT assays (n = 5083)")
+  ggtitle("HT assays (n = 5414)")
 
 ggsave(savepath("assays_lod_ht_secretome.png"), h = 5, w = 6)
 
@@ -379,16 +512,11 @@ annotation_col <-
               select(Gene, `Secretome location`), by = c("Assay" = "Gene")) |> 
   mutate(`Secretome location` = ifelse(is.na(`Secretome location`), "Unknown", `Secretome location`)) |> 
   mutate(Block = as.numeric(Block)) |> 
+    mutate(Olink_Explore_1463 = ifelse(Assay %in% common_assays, "Yes", "No")) |> 
   column_to_rownames("Assay")
 
 gg_heatmap <- 
-  phase2_lod_disease |> 
-  filter(!is.na(Disease)) |> 
-  select(Assay, Disease, Percentage_under_LOD) |> 
-  pivot_wider(names_from = Assay, 
-              values_from = Percentage_under_LOD,
-              values_fill = 0) |> 
-  column_to_rownames("Disease") |> 
+ |> |> 
  # t() |> 
   pheatmap(color=colorRampPalette(c("grey40", "white"))(50),
            annotation_row = annotation,
@@ -494,11 +622,6 @@ data_ht |>
 ggsave(savepath("blocks_concentration.png"), h = 5, w = 5)
 ```
 
-## Plates
-
-```{r}
-
-```
 
 ## Assay warning
 
@@ -627,6 +750,14 @@ data_ht |>
   theme_hpa() 
 
 ggsave(savepath("MAP2K1_replicates_IN.png"), h = 8, w = 8)
+```
+
+### LOD
+
+```{r}
+l 
+
+
 ```
 
 
@@ -1084,6 +1215,44 @@ data_ht |>
   ggtitle("Correlation for Patient 3 measurements across plates")
 
 ggsave("results/p3_plate_scatterplots_phase1_no_explore15.png", h = 10, w = 10)
+```
+
+## Example
+
+```{r}
+data_ht |> 
+  mutate(Olink_Explore_1463 = ifelse(Assay %in% common_assays, "In_Explore_1463", "Not_in_Explore_1463")) |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid %in% control_samples,
+         !Assay %in% control_assays) |> 
+  select(DAid, Plate, OlinkID, Assay, PCNormalizedNPX, Olink_Explore_1463) |> 
+  pivot_wider(names_from = Plate, 
+              values_from = PCNormalizedNPX) |> 
+  left_join(ht_lod, by = "Assay") |> 
+  ggplot(aes(P1, P2, color = Percentage_under_LOD)) +
+  geom_point(alpha = 0.4) +
+  facet_grid(Olink_Explore_1463~DAid) +
+  theme_hpa()
+
+ggsave(savepath("P1_P2_LOD.png"), h = 6, w = 7)
+
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid %in% control_samples,
+         !AssayType %in% control_assays) |> 
+  select(DAid, Plate, OlinkID, Assay, PCNormalizedNPX) |> 
+  pivot_wider(names_from = Plate, 
+              values_from = PCNormalizedNPX) |> 
+  left_join(ht_lod, by = "Assay") |> 
+    mutate(LOD = ifelse(Percentage_under_LOD > 70, ">80% below LOD", "< 80% below LOD")) |> 
+  filter(!is.na(Percentage_under_LOD)) |> 
+  ggplot(aes(P1, P2, color = Percentage_under_LOD)) +
+  geom_point(alpha = 0.4) +
+  facet_grid(LOD~DAid) +
+  theme_hpa()
+
+ggsave(savepath("P1_P2_LOD_facet.png"), h = 6, w = 7)
+
 ```
 
 ## Raincloud per plate
