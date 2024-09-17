@@ -109,7 +109,9 @@ do_umap <- function(data,
                     plots = F,
                     n_neighbors = 15) {
   if (wide) {
-    data_w <- data
+    data_w <- 
+      data |> 
+      rename(Sample = DAid)
   } else {
     data_w <-
       data |>

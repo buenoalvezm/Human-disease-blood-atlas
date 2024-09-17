@@ -463,6 +463,8 @@ Klev: I totally understand the point of view of Mathias and I do I agree with hi
 
 ## UMAP
 
+### All proteins
+
 ```{r}
 input_umap_data <- 
   data_step_4 |>
@@ -474,11 +476,52 @@ umap_all_proteins <-
           plots = F)
 
 umap_all_proteins |>
+  rename(DAid = Sample) |> 
   left_join(manifest, by = "DAid") |>
-  #mutate(Cohort = )
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggplot(aes(UMAP1, UMAP2, color = Cohort)) +
+  geom_point(alpha = 0.7, size = 0.8) +
+  scale_color_manual(values = pal_phase2) +
+  theme_hpa() +
+  ggtitle("All proteins")
+
+ggsave(savepath("umap_p2.png"), h = 6, w = 7)
+
+umap_all_proteins |>
+  rename(DAid = Sample) |> 
+  left_join(manifest, by = "DAid") |>
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
   ggplot(aes(UMAP1, UMAP2, color = Diagnose)) +
-  geom_point(alpha = 0.7, size = 2) +
+  geom_point(alpha = 0.7, size = 0.8) +
+  #scale_color_manual(values = pal_phase2) +
   theme_hpa()
+
+```
+
+### High detectability 
+
+```{r}
+input_umap_data <- 
+  data_step_4 |>
+  filter(!Assay %in% exclude_proteins$Assay) |> 
+  select(DAid, OlinkID, NPX) |>
+  pivot_wider(names_from = "OlinkID", values_from = "NPX")
+
+umap_high_detectability <- 
+  do_umap(data = input_umap_data,
+          plots = F)
+
+umap_high_detectability |>
+  rename(DAid = Sample) |> 
+  left_join(manifest, by = "DAid") |>
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggplot(aes(UMAP1, UMAP2, color = Cohort)) +
+  geom_point(alpha = 0.7, size = 0.8) +
+  scale_color_manual(values = pal_phase2) +
+  theme_hpa() +
+  ggtitle("Proteins with high detectability")
+
+ggsave(savepath("umap_p2_high_detectability.png"), h = 6, w = 7)
 ```
 
 
