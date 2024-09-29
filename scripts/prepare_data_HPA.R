@@ -34,26 +34,23 @@ disease_class_order <-
 saveRDS(disease_class_order, "data/data_to_IT/disease_levels.rds")
 
 # #Save differential expression results
-# combined_de <- readRDS(savepath_data("DE_v2", "combined_de.rds"))
-# combined_de|>
-#   left_join(resource_data |> 
-#               distinct(Assay, OlinkID), by = "Assay") |> 
-#   select(OlinkID, Assay, Disease, NPX_difference = logFC, p.adjusted = adj.P.Val, Significance = sig, Control) |> 
-#   mutate(Disease = case_when(Disease == "HIV_baseline" ~ "HIV", 
-#                              Disease == "Long COVID" ~ "Pediatric long COVID", 
-#                              Disease == "t2d" ~ "Type 2 diabetes",
-#                              Disease == "MetS" ~ "Metabolic syndrome",
-#                              Disease == "NAFLD" ~ "Nonalcoholic fatty liver disease",
-#                              Disease == "Chronic Liver Disease (CLD)" ~ "Chronic liver disease",
-#                              Disease == "Breast cancer DCIS" ~ "Breast ductal carcinoma in situ",
-#                              Disease == "Pediatric Sarcoma" ~ "Pediatric sarcoma",
-#                              Disease == "Pediatric Lymphoma" ~ "Pediatric lymphoma",
-#                              Disease == "Pediatric Blastoma" ~ "Pediatric blastoma",
-#                              Disease == "Pediatric Glioma" ~ "Pediatric glioma",
-#                              Disease == "Pediatric Brain tumor other" ~ "Pediatric brain tumor other",
-#                              T ~ Disease)) |>
-#   write_tsv("../../DBA_data/Phase1_2024/differential_expression_data.tsv")
-# 
+combined_de <- readRDS("../Pan-disease-profiling/data/processed/DE_v5/combined_de.rds")
+
+combined_de |> 
+  filter(Disease == "Systemic sclerosis")
+
+combined_de |> 
+  filter(adj.P.Val == 0)
+
+combined_de |> 
+  arrange(-logFC)
+
+combined_de|>
+  left_join(resource_data |>
+              distinct(Assay, OlinkID), by = "Assay") |>
+  select(OlinkID, Assay, Disease, NPX_difference = logFC, p.adjusted = adj.P.Val, Significance = sig, Control) |>
+  write_tsv("data/data_to_IT/differential_expression_data.tsv")
+
 # #Save protein importance
 # combined_importance <- readRDS(savepath_data("ML_v2", "combined_importance.rds"))
 # 
