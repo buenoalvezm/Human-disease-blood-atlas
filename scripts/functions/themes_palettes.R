@@ -35,6 +35,12 @@ pal_secreted <- c("Secreted to blood" = "#B30000",
                   "Immunoglobulin genes" = "#6BA592",
                   "Unknown" = "grey80")
 
+pal_ucan <- c("LUNG" = "#ADC74F",
+              "CRC" = "#B89B74", 
+              "BRC" = "#E8A29A",
+              "OVC" = "#603479",
+              "PRC" = "#E7662B")
+
 # Themes
 theme_hpa <- 
   function(angled = F, axis_x = T, axis_y = T, facet_title = T) {
