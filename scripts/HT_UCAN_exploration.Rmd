@@ -26,7 +26,7 @@ source("scripts/functions/themes_palettes.R")
 # Load data (raw Olink data and LIMS manifest
 data_ht <- read_NPX("data/raw_data/VL-3530B3_NPX_2024-09-25.parquet")
 manifest <- import_df("data/samples_2024-09-27.xlsx")
-targets <-  import_df("data/olink_targets/overlap_olink_platforms.csv")
+olink_targets <-  import_df("data/olink_targets/overlap_olink_platforms.csv")
 ```
 
 
@@ -127,7 +127,7 @@ data_hdba |>
   theme_hpa(angled = T) +
   ylab("Number of samples")
 
-ggsave(savepath("da_phase2_plates.png"), h = 6, w = 7)
+#ggsave(savepath("da_phase2_plates.png"), h = 6, w = 7)
 ```
 
 # 1 - Control assays & samples
@@ -282,7 +282,9 @@ data_step_1 |>
   xlab("Sample") +
   scale_fill_manual(values = pal_ucan) +
   theme_hpa(angled = T) +
-  ggtitle("Samples with QC warnings")
+  ggtitle("Samples with QC warnings") +
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank())
 
 ggsave(savepath("samples_qc_diagnose.png"), h = 4, w = 10)
 
@@ -299,7 +301,9 @@ data_step_1 |>
   geom_hline(yintercept = 5440/2, linetype = "dashed", color = "grey") +
   xlab("Sample") +
   theme_hpa(angled = T) +
-  ggtitle("Samples with QC warnings")
+  ggtitle("Samples with QC warnings") +
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank())
 
 ggsave(savepath("samples_qc_plate.png"), h = 4, w = 10)
 
@@ -313,7 +317,7 @@ data_step_1 |>
   ggplot(aes(Diagnose, n, color = Diagnose)) +
   geom_quasirandom() +
   geom_hline(yintercept = n_proteins / 2, color = "grey40", linetype = "dashed") +
-  geom_text_repel(aes(label = DAid), show.legend = F) +
+ # geom_text_repel(aes(label = DAid), show.legend = F) +
   scale_color_manual(values = pal_ucan) +
   theme_hpa(angled = T) +
   ggtitle("Number of proteins that pass QC per sample")
@@ -357,7 +361,7 @@ data_step_2 |>
   theme_hpa(angle = T) +
   xlab("Assay")
 
-ggsave(savepath("assay_qc.png"), h = 5, w = 10)
+#ggsave(savepath("assay_qc.png"), h = 5, w = 10)
 
 assays_high_warnings <- 
   data_step_2 |> 
@@ -448,7 +452,7 @@ replicate_assays_lod |>
   theme_hpa(angled = T) +
   ggtitle("Values under LOD per assay")
 
-ggsave(savepath("values_under_lod_replicate_assays.png"), h = 6, w = 7)
+#ggsave(savepath("values_under_lod_replicate_assays.png"), h = 6, w = 7)
 
 replicate_assays_remove <- 
   replicate_assays_lod |> 
@@ -587,6 +591,223 @@ umap_ucan <-
 - Look at secretome
 
 ```{r}
+source("scripts/functions/functions_analyses.R")
+source("scripts/functions/functions_visualization.R")
+
+female_diseases <- c("OVC", "BRC")
+male_diseases <- c("PRC")
+
+de_ucan <- 
+  map_df(names(pal_ucan), function(cancer) {
+    
+    message("Processing disease: ", cancer)
+
+    # Combine disease and control metadata
+    disease_meta <- 
+      manifest |> 
+      filter(Cohort == "UCA2",
+             Diagnose %in% names(pal_ucan)) |> 
+      mutate(Disease = ifelse(Diagnose == cancer, cancer, "Control")) |> 
+      select(DAid = DAid, Disease, Sex, Age, BMI)
+    
+    
+    # Filter controls based on gender-specific diseases
+    if(cancer %in% female_diseases) {
+      
+      disease_meta <- 
+        disease_meta |> 
+        filter(Sex == "F")
+      
+    } else if (cancer %in% male_diseases) {
+      
+      disease_meta <- 
+        disease_meta |> 
+        filter(Sex == "M")
+      
+    } else {
+      
+      disease_meta <- 
+        disease_meta
+      
+    }
+    
+    disease_data <- 
+      data_step_5 |> 
+      filter(DAid %in% disease_meta$DAid) |> 
+      select(DAid, Assay, NPX) |> 
+      pivot_wider(names_from = "Assay", values_from = "NPX")
+    
+    disease_res <- 
+      do_limma_disease(data_wide = disease_data, 
+                       metadata = disease_meta,
+                       disease = cancer,
+                       cutoff = 0.5,
+                       correct = F)
+    
+  })
+
+
+
 
 ```
+
+## Volcano plots - default
+
+```{r}
+
+
+labels <- 
+  de_ucan |> 
+  group_by(Disease) |>
+  top_n(n = 10, wt = -log10(adj.P.Val))
+
+cutoff = 0.5
+
+de_ucan |> 
+  ggplot(aes(x = logFC, y = -log10(adj.P.Val), color = sig, label = Assay)) +
+  geom_point(size = 1, alpha = 0.4, show.legend = F) + 
+  geom_text_repel(data = labels, size = 2, show.legend = F) +
+  geom_hline(yintercept = -log10(0.05), linetype = 'dashed', color = "darkgrey") +
+  geom_vline(xintercept = -cutoff, linetype = 'dashed', color = "darkgrey") +
+  geom_vline(xintercept = cutoff, linetype = 'dashed', color = "darkgrey") +
+  scale_color_manual(values = pal_de) +
+  facet_wrap(~Disease, scales = "free", nrow = 1) +
+  theme_hpa() +   
+  theme(axis.text = element_text(size = 8),
+        legend.position = "top") 
+
+  
+ggsave(savepath("ucan_volcanos.png"), h = 5, w = 15)
+
+```
+
+
+## Top targets from each cancer
+
+```{r}
+top_targets <- 
+  de_ucan |> 
+  group_by(Disease) |> 
+  filter(sig == "significant up") |>
+  top_n(n = 5, wt = -log10(adj.P.Val)) |> 
+  select(Disease, Assay, logFC, adj.P.Val, sig) |> 
+  bind_rows(
+    de_ucan |> 
+      group_by(Disease) |> 
+      filter(sig == "significant down") |>
+      top_n(n = 5, wt = -log10(adj.P.Val)) |> 
+      select(Disease, Assay, logFC, adj.P.Val, sig) )
+
+
+# Upregulated
+lapply(names(pal_ucan), function(disease) {
+  
+  targets <- 
+    top_targets |> 
+    ungroup() |> 
+    filter(Disease == disease)
+  
+  data_step_5 |> 
+    left_join(manifest, by = "DAid") |> 
+    filter(Diagnose %in% names(pal_ucan),
+           Assay %in% targets$Assay) |> 
+    left_join(targets, by = "Assay") |> 
+    mutate(sig = factor(sig, levels = c("significant up", "significant down")),
+           Assay = factor(Assay, levels = targets$Assay)) |> 
+    ggplot(aes(Diagnose, NPX, fill = Diagnose, color = Diagnose)) +
+    geom_quasirandom(alpha = 0.7) +
+    geom_boxplot(
+      alpha = 0.3,
+      outlier.color = NA,
+      color = "grey20"
+    ) +
+    scale_color_manual(values = pal_ucan) +
+    scale_fill_manual(values = pal_ucan) +
+    facet_wrap(sig~Assay, scales = "free_y", nrow = 2) +
+    theme_hpa(angled = T) +
+    ggtitle(paste0("Top proteins - ", disease)) +
+    xlab("")
+  
+  ggsave(savepath(paste0(disease, "_volcano.png")), h = 5, w = 10)
+  
+})
+
+
+```
+
+
+## Volcano plots - olink platform
+
+```{r}
+labels <- 
+  de_ucan |> 
+  left_join(olink_targets, by = "Assay") |> 
+  group_by(Disease) |>
+  top_n(n = 10, wt = -log10(adj.P.Val))
+
+de_ucan |> 
+  left_join(olink_targets, by = "Assay") |> 
+  ggplot(aes(x = logFC, y = -log10(adj.P.Val), color = Platform, label = Assay)) +
+  geom_point(size = 1, alpha = 0.4) + 
+  geom_text_repel(data = labels, size = 2, show.legend = F) +
+  geom_hline(yintercept = -log10(0.05), linetype = 'dashed', color = "darkgrey") +
+  geom_vline(xintercept = -cutoff, linetype = 'dashed', color = "darkgrey") +
+  geom_vline(xintercept = cutoff, linetype = 'dashed', color = "darkgrey") +
+  scale_color_manual(values = pal_platforms) +
+  facet_wrap(~Disease, scales = "free", nrow = 1) +
+  theme_hpa() +   
+  theme(axis.text = element_text(size = 8),
+        legend.position = "top") 
+
+
+ggsave(savepath("ucan_volcanos_platform.png"), h = 5, w = 15)
+
+```
+
+
+## Volcano plots - pan-cancer
+
+```{r}
+pancancer <- import_df("data/pan_cancer_panel.xlsx")
+
+pancancer_ucan <- 
+  pancancer |> 
+  filter(Cancer %in% c("Breast",
+                       "Ovarian",
+                       "Prostate",
+                       "Lung",
+                       "Colorectal")) |> 
+  mutate(Disease = case_when(Cancer == "Breast" ~ "BRC",
+                             Cancer == "Ovarian" ~ "OVC",
+                             Cancer == "Prostate" ~ "PRC",
+                             Cancer == "Lung" ~ "LUNG",
+                             Cancer == "Colorectal" ~ "CRC"))  |> 
+  rename(Assay = Protein) |> 
+  mutate(In_pan_cancer = Disease)
+
+labels <- 
+  de_ucan |> 
+  select(-Disease) |> 
+  left_join(pancancer_ucan, by = "Assay") |> 
+  group_by(Disease) |>
+  top_n(n = 10, wt = -log10(adj.P.Val))
+
+de_ucan |> 
+  left_join(pancancer_ucan, by = "Assay") |> 
+  ggplot(aes(x = logFC, y = -log10(adj.P.Val), color = In_pan_cancer, label = Assay)) +
+  geom_point(size = 1, alpha = 0.4) + 
+  geom_text_repel(data = labels, size = 2, show.legend = F) +
+  geom_hline(yintercept = -log10(0.05), linetype = 'dashed', color = "darkgrey") +
+  geom_vline(xintercept = -cutoff, linetype = 'dashed', color = "darkgrey") +
+  geom_vline(xintercept = cutoff, linetype = 'dashed', color = "darkgrey") +
+  scale_color_manual(values = pal_ucan) +
+  facet_wrap(~Disease, scales = "free", nrow = 1) +
+  theme_hpa() +   
+  theme(axis.text = element_text(size = 8),
+        legend.position = "top") 
+
+
+```
+
+
 
