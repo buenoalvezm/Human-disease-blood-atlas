@@ -24,8 +24,8 @@ library(arrow)
 library(OlinkAnalyze)
 
 # Read internal functions
-source("scripts/functions_utility.R")
-source("scripts/themes_palettes.R")
+source("scripts/functions/functions_utility.R")
+source("scripts/functions/themes_palettes.R")
 
 # Load data (raw Olink data and LIMS manifest
 data_ht <- import_df("data/cs-transfer/VL-3530B1_complete_NPX_2024-07-01.parquet")
@@ -132,6 +132,32 @@ data_hdba |>
 
 ggsave(savepath("da_phase2_plates.png"), h = 6, w = 7)
 ```
+
+# Explore outlier plates
+
+```{r}
+
+data_ht |> 
+  group_by(PlateID) |> 
+  count(SampleQC) |> 
+  ggplot(aes(PlateID, n, fill = SampleQC)) +
+  geom_col() +
+  scale_fill_manual(values = c("", "", ""))
+  theme_hpa(angled = T)
+  
+  
+  data_ht |> 
+  group_by(PlateID) |> 
+  count(SampleQC) |> 
+  ggplot(aes(PlateID, n, fill = SampleQC)) +
+  geom_col() +
+  scale_fill_manual(values = c("", "", ""))
+  theme_hpa(angled = T)
+ 
+
+```
+
+
 
 # 1 - Control assays & samples
 
