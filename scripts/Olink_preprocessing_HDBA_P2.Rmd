@@ -136,27 +136,74 @@ ggsave(savepath("da_phase2_plates.png"), h = 6, w = 7)
 # Explore outlier plates
 
 ```{r}
+data_ht 
+
+library(patchwork)
 
 data_ht |> 
   group_by(PlateID) |> 
   count(SampleQC) |> 
   ggplot(aes(PlateID, n, fill = SampleQC)) +
   geom_col() +
-  scale_fill_manual(values = c("", "", ""))
-  theme_hpa(angled = T)
-  
-  
-  data_ht |> 
+  theme_hpa(angled = T) 
+ggsave(savepath("da_phase2_plate_sampleQC.png"), h = 6, w = 10)
+
+data_ht |> 
   group_by(PlateID) |> 
-  count(SampleQC) |> 
-  ggplot(aes(PlateID, n, fill = SampleQC)) +
+  count(AssayQC) |> 
+  filter(!is.na(AssayQC),
+         AssayQC != "NA") |> 
+  mutate(AssayQC = fct_reorder(AssayQC, n)) |>
+  ggplot(aes(PlateID, n, fill = AssayQC)) +
   geom_col() +
-  scale_fill_manual(values = c("", "", ""))
   theme_hpa(angled = T)
- 
+
+ggsave(savepath("da_phase2_plate_assayQC.png"), h = 6, w = 10)
+
+# LOD distribution
+
+data_ht_lod |>
+  filter(AssayType == "assay") |> 
+  distinct(PlateID, Assay, LOD) |> 
+  ggplot(aes(PlateID, LOD)) +
+  geom_quasirandom() +
+  theme_hpa(angled = T)
+  
+  
+group_by(PlateID, Assay) |>
+  summarise(n = n_distinct(LOD))
+
+a |> 
+  filter(n>1) |> 
+  #ungroup() |> 
+  distinct(Assay)
+  
+  count(PlateID)
+  
+  
+samples_high_warnings
+  
 
 ```
 
+## Correlation extension controls?
+
+```{r}
+
+data_ht |> 
+  filter(AssayType == "ext_ctrl") |> 
+  ggplot(aes(PlateID, Count)) +
+  geom_quasirandom() +
+  facet_wrap(~Assay, ncol = 1) +
+  theme_hpa(angled = T)
+
+ggsave(savepath("da_phase2_ext_ctrl.png"), h = 12, w = 8)
+
+
+
+
+
+```
 
 
 # 1 - Control assays & samples
