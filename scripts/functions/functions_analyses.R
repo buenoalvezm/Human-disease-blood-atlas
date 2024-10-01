@@ -5,7 +5,7 @@ library(tidymodels)
 library(themis)
 
 # Run differential expression using limma
-de_limma_disease <-
+do_limma_disease <-
   function(data_wide, 
            metadata,
            disease,
