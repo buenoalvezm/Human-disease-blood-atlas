@@ -733,6 +733,46 @@ lapply(names(pal_ucan), function(disease) {
 })
 
 
+protein <- "LACRT"
+protein <- "CGA"
+data_step_5 |> 
+    left_join(manifest, by = "DAid") |> 
+    filter(Diagnose %in% names(pal_ucan),
+           Assay %in% protein) |> 
+    left_join(targets, by = "Assay") |> 
+    mutate(sig = factor(sig, levels = c("significant up", "significant down")),
+           Assay = factor(Assay, levels = targets$Assay)) |> 
+    ggplot(aes(Diagnose, NPX, fill = Diagnose, color = Diagnose)) +
+    geom_quasirandom(alpha = 0.7) +
+    geom_boxplot(
+      alpha = 0.3,
+      outlier.color = NA,
+      color = "grey20"
+    ) +
+    scale_color_manual(values = pal_ucan) +
+    scale_fill_manual(values = pal_ucan) +
+  theme_hpa(angled = T) +
+    ggtitle(protein) +
+    xlab("")
+
+
+data_step_5 |> 
+    left_join(manifest, by = "DAid") |> 
+    filter(Diagnose %in% names(pal_ucan),
+           Assay %in% protein) |> 
+    ggplot(aes(Diagnose, NPX, fill = Diagnose, color = Diagnose)) +
+    geom_quasirandom(alpha = 0.7) +
+    geom_boxplot(
+      alpha = 0.3,
+      outlier.color = NA,
+      color = "grey20"
+    ) +
+    scale_color_manual(values = pal_ucan) +
+    scale_fill_manual(values = pal_ucan) +
+  theme_hpa(angled = T) +
+    ggtitle(protein) +
+    xlab("")
+
 ```
 
 
