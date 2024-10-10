@@ -230,7 +230,7 @@ data_ht |>
   ggtitle("Correlation for Patient 3 measurements across plates") +
   theme(plot.title = element_text(face = "bold", size = rel(1))) 
 
-ggsave(savepath("plate_controls_high_detect_assays.png"), h = 6, w = 12)
+#ggsave(savepath("plate_controls_high_detect_assays.png"), h = 6, w = 12)
 
 
 ```
@@ -583,6 +583,47 @@ umap_ucan <-
          wide = F)
 ```
 
+# Plot all proteins
+
+```{r}
+
+plot_prots <- 
+  de_ucan |> 
+  filter(sig != "not significant") |> 
+  pull(Assay) |> 
+  unique()
+
+all_proteins <- unique(data_step_5$Assay)
+
+plots_prots <- 
+  lapply(plot_prots, function(protein) {
+  
+  data_step_5 |> 
+    left_join(manifest, by = "DAid") |> 
+    filter(Diagnose %in% names(pal_ucan),
+           Assay %in% protein) |> 
+    ggplot(aes(Diagnose, NPX, fill = Diagnose, color = Diagnose)) +
+    geom_quasirandom(alpha = 0.7) +
+    geom_boxplot(
+      alpha = 0.3,
+      outlier.color = NA,
+      color = "grey20"
+    ) +
+    scale_color_manual(values = pal_ucan) +
+    scale_fill_manual(values = pal_ucan) +
+  theme_hpa(angled = T) +
+    ggtitle(protein) +
+    xlab("")
+  
+})
+
+pdf(savepath("all_proteins_ucan.pdf"), h = 7, w = 7)
+plots_prots
+dev.off()
+
+
+```
+
 
 # Differential expression
 
@@ -849,5 +890,43 @@ de_ucan |>
 
 ```
 
+## Comparison to P!
+
+```{r}
+de_ucan_p1 <- read_tsv("data/previous_studies/ucan_p1.tsv")
+
+de_p1_p2 <- 
+  de_ucan_p1 |> 
+  filter(Cancer %in% c("BRC", "CRC", "LUNGC", "OVC", "PRC")) |> 
+  mutate(Cancer = ifelse(Cancer == "LUNGC", "LUNG", Cancer)) |> 
+  select(Assay, Cancer, logFC_P1 = NPX_difference, adj_pval_P1 = p.adjusted) |>
+  left_join(de_ucan |> 
+               select(Assay, Cancer = Disease, logFC_P2 = logFC, adj_pval_P2 = adj.P.Val), by = c("Assay", "Cancer")) 
+
+p_fc <- de_p1_p2 |> 
+  ggplot(aes(x = logFC_P1, y = logFC_P2, color = Cancer)) +
+  geom_point() +
+  facet_wrap(~Cancer, scales = "free", nrow = 1) +
+  geom_label_repel(aes(label = Assay), show.legend = F) +
+  geom_hline(yintercept = 0, color = "grey", lty = "dashed") +
+  geom_vline(xintercept = 0, color = "grey", lty = "dashed") +
+  scale_color_manual(values = pal_ucan) +
+  theme_hpa() 
+
+p_pval <- 
+  de_p1_p2 |> 
+  ggplot(aes(x = -log10(adj_pval_P1), y = -log10(adj_pval_P2), color = Cancer)) +
+  geom_point() +
+  facet_wrap(~Cancer, scales = "free", nrow = 1) +
+  geom_label_repel(aes(label = Assay), show.legend = F) +
+  scale_color_manual(values = pal_ucan) +
+  geom_hline(yintercept = -log10(0.05), color = "grey", lty = "dashed") +
+  geom_vline(xintercept = -log10(0.05), color = "grey", lty = "dashed") +
+  theme_hpa()
+
+p_fc / p_pval
+
+ggsave(savepath("p1_p2_ucan.png"), h = 10, w = 14)
+```
 
 
