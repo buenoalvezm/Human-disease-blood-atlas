@@ -34,7 +34,7 @@ disease_class_order <-
 saveRDS(disease_class_order, "data/data_to_IT/disease_levels.rds")
 
 # #Save differential expression results
-combined_de <- readRDS("../Pan-disease-profiling/data/processed/DE_v5/combined_de.rds")
+combined_de <- readRDS("../Pan-disease-profiling/data/processed/DE_v6/combined_de.rds")
 
 combined_de |> 
   filter(Disease == "Systemic sclerosis")
@@ -44,6 +44,9 @@ combined_de |>
 
 combined_de |> 
   arrange(-logFC)
+
+combined_de |> 
+  arrange(adj.P.Val)
 
 combined_de|>
   left_join(resource_data |>
