@@ -24,8 +24,8 @@ library(OlinkAnalyze)
 library(ggrain)
 
 # Read internal functions
-source("scripts/functions_utility.R")
-source("scripts/themes_palettes.R")
+source("scripts/functions/functions_utility.R")
+source("scripts/functions/themes_palettes.R")
 
 # Read data
 data_ht <- import_df("data/cs-transfer/VL-3530B1_complete_NPX_2024-07-01.parquet")
