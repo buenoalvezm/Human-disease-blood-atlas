@@ -89,7 +89,7 @@ n_samples <-
   nrow()
 
 # LOD calculation
-data_ht_lod <- olink_lod(data = data_ht, lod_method = "NCLOD")
+data_ht_lod <- olink_lod(data = data_hdba, lod_method = "NCLOD")
 ```
 
 
@@ -132,79 +132,6 @@ data_hdba |>
 
 ggsave(savepath("da_phase2_plates.png"), h = 6, w = 7)
 ```
-
-# Explore outlier plates
-
-```{r}
-data_ht 
-
-library(patchwork)
-
-data_ht |> 
-  group_by(PlateID) |> 
-  count(SampleQC) |> 
-  ggplot(aes(PlateID, n, fill = SampleQC)) +
-  geom_col() +
-  theme_hpa(angled = T) 
-ggsave(savepath("da_phase2_plate_sampleQC.png"), h = 6, w = 10)
-
-data_ht |> 
-  group_by(PlateID) |> 
-  count(AssayQC) |> 
-  filter(!is.na(AssayQC),
-         AssayQC != "NA") |> 
-  mutate(AssayQC = fct_reorder(AssayQC, n)) |>
-  ggplot(aes(PlateID, n, fill = AssayQC)) +
-  geom_col() +
-  theme_hpa(angled = T)
-
-ggsave(savepath("da_phase2_plate_assayQC.png"), h = 6, w = 10)
-
-# LOD distribution
-
-data_ht_lod |>
-  filter(AssayType == "assay") |> 
-  distinct(PlateID, Assay, LOD) |> 
-  ggplot(aes(PlateID, LOD)) +
-  geom_quasirandom() +
-  theme_hpa(angled = T)
-  
-  
-group_by(PlateID, Assay) |>
-  summarise(n = n_distinct(LOD))
-
-a |> 
-  filter(n>1) |> 
-  #ungroup() |> 
-  distinct(Assay)
-  
-  count(PlateID)
-  
-  
-samples_high_warnings
-  
-
-```
-
-## Correlation extension controls?
-
-```{r}
-
-data_ht |> 
-  filter(AssayType == "ext_ctrl") |> 
-  ggplot(aes(PlateID, Count)) +
-  geom_quasirandom() +
-  facet_wrap(~Assay, ncol = 1) +
-  theme_hpa(angled = T)
-
-ggsave(savepath("da_phase2_ext_ctrl.png"), h = 12, w = 8)
-
-
-
-
-
-```
-
 
 # 1 - Control assays & samples
 
@@ -311,11 +238,12 @@ ggsave(savepath("plate_controls_high_detect_assays.png"), h = 6, w = 12)
 
 ```
 
+
 ## Remove control assays & samples
 
 ```{r}
 data_step_1 <- 
-  data_hdba |> 
+  data_ht_lod |> 
   filter(!SampleType %in% control_sample_types,
          !DAid %in% control_samples, # Remove internal KTH controls
          !AssayType %in% control_assay_types) |>
@@ -340,6 +268,21 @@ data_hdba_controls <-
 #write_parquet(data_hdba_controls, "data/final_data/Olink/data_phase2_kth_internal_controls_20240916.parquet")  
 ```
 
+## Save wellness data for Mai
+
+```{r}
+
+# Filter to Wellness samples
+data_step_1 |> 
+  left_join(manifest |> 
+              select(DAid, Cohort), by = "DAid") |> 
+  filter(Cohort == "WELL") |> 
+  select(-Cohort) |>
+  write_csv("data/final_data/data_phase2_wellness.csv")
+  #write_parquet("data/final_data/data_phase2_wellness.parquet")  
+
+```
+
 # 2 - QC warnings
 
 ## Overview
@@ -358,7 +301,7 @@ data_step_1 |>
   geom_hline(yintercept = 5440/2, linetype = "dashed", color = "grey") +
   xlab("Sample") +
   theme_hpa(angled = T) +
-  ggtitle("Samples with QC warnings")
+  ggtitle("Samples with QC warnings") 
 
 #ggsave(savepath("samples_qc.png"), h = 4, w = 10)
 
