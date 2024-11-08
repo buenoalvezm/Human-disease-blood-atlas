@@ -926,7 +926,7 @@ p_pval <-
 
 p_fc / p_pval
 
-ggsave(savepath("p1_p2_ucan.png"), h = 10, w = 14)
+ggsave(savepath("p1_p2_ucan.png"), h = 10, w = 16)
 ```
 
 
