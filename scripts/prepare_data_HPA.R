@@ -78,3 +78,24 @@ combined_de|>
 #                              Disease == "Pediatric Brain tumor other" ~ "Pediatric brain tumor other",
 #                              T ~ Disease)) |>
 #   write_tsv("../../DBA_data/Phase1_2024/disease_models_data.tsv")
+
+combined_de_v6 <- readRDS("../Pan-disease-profiling/data/processed/DE_v6/combined_de.rds")
+combined_de_v5 <- readRDS("../Pan-disease-profiling/data/processed/DE_v5/combined_de.rds")
+
+source("scripts/functions/functions_utility.R")
+
+combined_de_v5 |> 
+  select(Assay, Disease, Control, logFC_v5 = logFC) |> 
+  left_join(combined_de_v6 |> 
+              select(Assay, Disease, Control, logFC_v6 = logFC), by = c("Assay", "Disease", "Control")) |> 
+  ggplot(aes(logFC_v5, logFC_v6)) +
+  geom_point() +
+  facet_wrap(~Control, scales = "free", nrow = 1) +
+  theme_bw()
+
+ggsave(savepath("fc_comparison_v5_v6.png"), h = 6, w = 12)
+
+
+
+# NPX difference compare
+
