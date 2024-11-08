@@ -272,12 +272,17 @@ data_hdba_controls <-
 
 ```{r}
 
+manifest |> 
+   filter(Cohort == "WELL") |> View()
+
 # Filter to Wellness samples
 data_step_1 |> 
   left_join(manifest |> 
-              select(DAid, Cohort), by = "DAid") |> 
+              select(DAid, Cohort, `Extra data`), by = "DAid") |> 
   filter(Cohort == "WELL") |> 
-  select(-Cohort) |>
+  mutate(visit = str_extract(`Extra data`, "(?<=visit: )\\d+"), 
+         barcode = str_extract(`Extra data`, "(?<=barcode: )\\d+")) |> 
+  select(-Cohort, -`Extra data`) |>
   write_csv("data/final_data/data_phase2_wellness.csv")
   #write_parquet("data/final_data/data_phase2_wellness.parquet")  
 
