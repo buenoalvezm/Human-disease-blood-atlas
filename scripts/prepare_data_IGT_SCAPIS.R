@@ -19,3 +19,19 @@ data_igt_scapis <-
 
 
 write_tsv(data_igt_scapis, "data/processed/LIMS/data_IGT_SCAPIS_preprocessed.csv")
+
+
+
+data_phase1 |> 
+  left_join(manifest |> 
+              distinct(DAid, Cohort), by = "DAid") |> 
+  filter(Cohort %in% c("IGTS", "SCAP")) 
+  
+  
+  select(-Cohort, -SampleID_Original) |> 
+  relocate(DAid)
+  
+  manifest |> 
+    filter(Disease == "Healthy") |> 
+    count(Cohort) 
+  
