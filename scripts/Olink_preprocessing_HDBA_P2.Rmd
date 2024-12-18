@@ -1,12 +1,29 @@
 ---
 title: "Human Disease Blood Atlas Olink Data Quality Control"
+subtitle: "Phase 2 (Olink HT) - Batch 1"
 author: "María Bueno Álvez"
-date: "`r Sys.Date()`"
-output:
-  html_document:
+date: last-modified
+date-format: "YYYY-MM-DD"
+format:
+  html:
+    self-contained: true
+    theme: flatly
+    title-block-banner: true
+    smooth-scroll: true
     toc: true
-    toc_float: true
-    keep_md: yes
+    toc-depth: 4
+    toc-location: right
+    number-sections: true
+    number-depth: 4
+    code-fold: true
+    code-tools: true
+    code-copy: true
+    code-overflow: wrap
+    df-print: kable
+    standalone: false
+    fig-align: left
+    figure:
+      caption: "Figure {number}: {label}"
 editor_options: 
   chunk_output_type: console
 ---
@@ -24,12 +41,13 @@ library(arrow)
 library(OlinkAnalyze)
 
 # Read internal functions
-source("scripts/functions/functions_utility.R")
-source("scripts/functions/themes_palettes.R")
+source("../scripts/functions/functions_utility.R")
+source("../scripts/functions/functions_visualization.R")
+source("../scripts/functions/themes_palettes.R")
 
-# Load data (raw Olink data and LIMS manifest
-data_ht <- import_df("data/cs-transfer/VL-3530B1_complete_NPX_2024-07-01.parquet")
-manifest <- import_df("data/samples_2024-04-19.xlsx")
+# Load Olink NPX data and LIMS manifest
+data_ht <- import_df("../data/cs-transfer/VL-3530B1_complete_NPX_2024-07-01.parquet")
+manifest <- import_df("../data/samples_2024-04-19.xlsx")
 ```
 
 
@@ -59,7 +77,7 @@ control_samples <-
   filter(Cohort == "CTRL") |> 
   pull(DAid)
 
-# Store Olink metadata 
+# Extract Olink assay metadata 
 olink_meta <- 
   data_ht |> 
   filter(!AssayType %in% control_assay_types) |>
@@ -70,7 +88,7 @@ n_proteins <-
   unique() |> 
   length()
 
-# Change ID to DA id
+# Map SampleIDs to DA identifiers 
 id_mapping <- 
   data_ht |> 
   filter(SampleType == "SAMPLE") |> 
@@ -88,14 +106,20 @@ n_samples <-
   distinct(DAid) |> 
   nrow()
 
-# LOD calculation
+# Calculate Limit of Detection (LOD) using negative controls
 data_ht_lod <- olink_lod(data = data_hdba, lod_method = "NCLOD")
+
+## Save raw data - including LOD calculation
+write_csv(data_ht_lod, file = "../data/final_data/data_phase2_batch1_raw_20241217.csv")  
 ```
 
 
 # Data overview
 
-In the delivered Olink dataset, there are currently **`n_samples` samples**, and **`nrow(olink_meta)` proteins** measured in each sample.
+This section provides an **overview of the Olink dataset**, including the total number of samples and proteins measured. 
+In the delivered Olink dataset, there are currently **`r n_samples` samples**, and **`r nrow(olink_meta)` proteins** measured in each sample.
+
+**Figure 1**: Number of samples per cohort.
 
 ```{r}
 data_hdba |> 
@@ -112,7 +136,11 @@ data_hdba |>
   ylab("Number of samples")
 
 #ggsave(savepath("da_phase2_cohorts.png"), h = 6, w = 6)
+```
 
+**Figure 2**: Sample distribution across plates.
+
+```{r}
 data_hdba |> 
   mutate(Plate = gsub("P", "", Plate),
          Plate = as.numeric(Plate),
@@ -130,13 +158,21 @@ data_hdba |>
   theme_hpa(angled = T) +
   ylab("Number of samples")
 
-ggsave(savepath("da_phase2_plates.png"), h = 6, w = 7)
+#ggsave(savepath("da_phase2_plates.png"), h = 6, w = 7)
 ```
 
-# 1 - Control assays & samples
+
+# Step 1: Exploration of control samples and control assays
+
+This section identifies and **analyzes control samples to ensure data quality**. Specifically, we explore correlations between technical replicates for selected patients (patient 2 and patient 3) across multiple plates.
+
+## Plate-to-plate correlation for patient 2 & 3
+
+We calculate **Spearman correlations for measurements of Patient 2 and Patient 3 across plates**. These analyses help assess technical reproducibility.
 
 
-## Explore patient 2 & 3
+
+**Figure 3**: Correlation heatmap for Patient 2 across plates.
 
 ```{r}
 data_ht |> 
@@ -147,11 +183,12 @@ data_ht |>
   column_to_rownames("Plate") |> 
   t() |> 
   cor(method = "spearman")|> 
-  pheatmap() |> 
-  as.ggplot() +
-  ggtitle("Correlation for Patient 2 measurements across plates") +
-  theme(plot.title = element_text(face = "bold", size = rel(1))) +
+  pheatmap()
+```
 
+**Figure 4**: Correlation heatmap for Patient 3 across plates.
+
+```{r}
 data_ht |> 
   left_join(id_mapping, by = "SampleID") |> 
   filter(DAid == "DA12363") |> 
@@ -160,13 +197,13 @@ data_ht |>
   column_to_rownames("Plate") |> 
   t() |> 
   cor(method = "spearman")|> 
-  pheatmap() |> 
-  as.ggplot() +
-  ggtitle("Correlation for Patient 3 measurements across plates") +
-  theme(plot.title = element_text(face = "bold", size = rel(1))) 
+  pheatmap() 
+```
 
-#ggsave(savepath("plate_controls.png"), h = 6, w = 12)
 
+**Figure 5**: Scatterplots showing pairwise correlations between plates for Patient 2.
+
+```{r warning=FALSE, message=FALSE}
 data_ht |> 
   left_join(id_mapping, by = "SampleID") |> 
   filter(DAid == "DA12362") |> 
@@ -177,7 +214,11 @@ data_ht |>
   ggtitle("Correlation for Patient 2 measurements across plates") 
 
 #ggsave(savepath("p2_plate_scatterplots.png"), h = 10, w = 10)
+```
 
+**Figure 6**: Scatterplots showing pairwise correlations between plates for Patient 3.
+
+```{r warning=FALSE, message=FALSE}
 data_ht |> 
   left_join(id_mapping, by = "SampleID") |> 
   filter(DAid == "DA12363") |> 
@@ -190,13 +231,13 @@ data_ht |>
 #ggsave(savepath("p3_plate_scatterplots.png"), h = 10, w = 10)
 ```
 
-### Proteins above LOD
+### Correlation excluding proteins below LOD
 
-```{r}
+This section refines the **correlation analysis by excluding proteins that fall below the LOD across all replicates**. This step ensures a cleaner analysis focusing only on reliably measured proteins.
 
+```{r warning=FALSE, message=FALSE}
 exclude_proteins <- 
   data_ht_lod |> 
-  left_join(id_mapping, by = "SampleID") |>
   filter(DAid %in% control_samples) |> 
   mutate(under_LOD = ifelse(NPX < LOD, "Yes", "No")) |> 
   group_by(Assay) |> 
@@ -204,7 +245,11 @@ exclude_proteins <-
   filter(under_LOD == "Yes") |> 
   ungroup() |> 
   filter(n > length(unique(data_ht$PlateID)))
+```
 
+**Figure 7**: Heatmaps of correlations for Patient 2 measurements (filtered for proteins above LOD).
+
+```{r}
 data_ht |> 
   left_join(id_mapping, by = "SampleID") |> 
   filter(DAid == "DA12362",
@@ -214,11 +259,12 @@ data_ht |>
   column_to_rownames("Plate") |> 
   t() |> 
   cor(method = "spearman")|> 
-  pheatmap() |> 
-  as.ggplot() +
-  ggtitle("Correlation for Patient 2 measurements across plates") +
-  theme(plot.title = element_text(face = "bold", size = rel(1))) +
+  pheatmap() 
+```
 
+**Figure 8**: Heatmaps of correlations for Patient 3 measurements (filtered for proteins above LOD).
+
+```{r}
 data_ht |> 
   left_join(id_mapping, by = "SampleID") |> 
   filter(DAid == "DA12363",
@@ -228,18 +274,14 @@ data_ht |>
   column_to_rownames("Plate") |> 
   t() |> 
   cor(method = "spearman")|> 
-  pheatmap() |> 
-  as.ggplot() +
-  ggtitle("Correlation for Patient 3 measurements across plates") +
-  theme(plot.title = element_text(face = "bold", size = rel(1))) 
-
-ggsave(savepath("plate_controls_high_detect_assays.png"), h = 6, w = 12)
-
-
+  pheatmap() 
 ```
 
 
+
 ## Remove control assays & samples
+
+In this step, we **filter out control assays and samples** that are not part of the main dataset. This ensures clean data for downstream analyses.
 
 ```{r}
 data_step_1 <- 
@@ -247,10 +289,14 @@ data_step_1 <-
   filter(!SampleType %in% control_sample_types,
          !DAid %in% control_samples, # Remove internal KTH controls
          !AssayType %in% control_assay_types) |>
-  select(DAid, Assay, OlinkID, UniProt, Panel, Block, Plate, Count, ExtNPX, NPX, PCNormalizedNPX, AssayQC, SampleQC)
+  select(DAid, Assay, OlinkID, UniProt, Panel, Block, Plate, Count, ExtNPX, NPX, PCNormalizedNPX, AssayQC, SampleQC, LOD) |> 
+  mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No"))
 ```
 
 ## Save control data for Olink
+
+Here, we save **control data for internal investigations at Olink**. These control assays and samples are retained separately for quality control and troubleshooting purposes.
+
 
 ```{r}
 data_olink_controls <- 
@@ -268,29 +314,33 @@ data_hdba_controls <-
 #write_parquet(data_hdba_controls, "data/final_data/Olink/data_phase2_kth_internal_controls_20240916.parquet")  
 ```
 
-## Save wellness data for Mai
+## Save Wellness data
 
-```{r}
+In this step, we **extract and save raw Wellness data** for internal HDBA projects.
 
-manifest |> 
-   filter(Cohort == "WELL") |> View()
-
-# Filter to Wellness samples
-data_step_1 |> 
+```{r} 
+wellness_ht <- 
+  data_step_1 |> 
   left_join(manifest |> 
               select(DAid, Cohort, `Extra data`), by = "DAid") |> 
   filter(Cohort == "WELL") |> 
   mutate(visit = str_extract(`Extra data`, "(?<=visit: )\\d+"), 
          barcode = str_extract(`Extra data`, "(?<=barcode: )\\d+")) |> 
   select(-Cohort, -`Extra data`) |>
-  write_csv("data/final_data/data_phase2_wellness.csv")
-  #write_parquet("data/final_data/data_phase2_wellness.parquet")  
+  left_join(manifest |> 
+              select(DAid, `Extra data`), by = "DAid") 
 
+#write_csv(wellness_ht, "data/final_data/data_phase2_wellness.csv")
 ```
 
-# 2 - QC warnings
+# Step 2: QC warnings
 
-## Overview
+In this step, we assess **quality control (QC) warnings at the sample and protein levels**. Samples or protein measurements flagged with warnings will be excluded based on predefined thresholds.
+
+## Percentage of QC warnings per sample
+We calculate the number of QC warnings per sample, with a focus on those that do not pass QC.
+
+**Figure 9**: Barplot showing the number of QC warnings for each sample, colored by cohort.
 
 ```{r}
 data_step_1 |> 
@@ -304,12 +354,19 @@ data_step_1 |>
   geom_col() +
   scale_fill_manual(values = pal_phase2) +
   geom_hline(yintercept = 5440/2, linetype = "dashed", color = "grey") +
-  xlab("Sample") +
   theme_hpa(angled = T) +
+  xlab("Sample") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks = element_blank()) +
   ggtitle("Samples with QC warnings") 
 
-#ggsave(savepath("samples_qc.png"), h = 4, w = 10)
 
+#ggsave(savepath("samples_qc.png"), h = 4, w = 10)
+```
+
+**Figure 10**: Beeswarm plot showing the number of proteins passing QC for each sample.
+
+```{r}
 data_step_1 |> 
   group_by(DAid) |> 
   filter(SampleQC == "PASS") |>
@@ -320,7 +377,7 @@ data_step_1 |>
   ggplot(aes(Cohort, n, color = Cohort)) +
   geom_quasirandom() +
   geom_hline(yintercept = n_proteins / 2, color = "grey40", linetype = "dashed") +
-  geom_text_repel(aes(label = DAid), show.legend = F) +
+ # geom_text_repel(aes(label = DAid), show.legend = F) +
   scale_color_manual(values = pal_phase2) +
   theme_hpa(angled = T) +
   ggtitle("Number of proteins that pass QC per sample")
@@ -328,7 +385,10 @@ data_step_1 |>
 #ggsave(savepath("samples_pass.png"), h = 8, w = 8)
 ```
 
+
 ## Samples with > 50% QC warnings
+
+This analysis identifies samples with more than 50% of proteins flagged with QC warnings, which will be excluded from further analysis.
 
 ```{r}
 samples_high_warnings <- 
@@ -340,7 +400,13 @@ samples_high_warnings <-
   filter(perc_warning > 0.5) 
 ```
 
+In the current dataset, the **number of samples with > 50% warnings is: `r nrow(samples_high_warnings)`**.
+
+These samples will be excluded from further analysis.
+
 ## Remove individual sample QC warnings
+
+In this step, we **filter out the samples identified in the previous step that have more than 50% QC warnings**. Additionally, we **remove protein measurements that failed QC**. Since the data is in long format, this step will not introduce any NAs. However, when the data is reshaped into a wide format, missing values may be introduced.
 
 ```{r}
 data_step_2 <- 
@@ -350,7 +416,11 @@ data_step_2 <-
   select(-SampleQC)
 ```
 
-# 3 - Assay warnings
+# Step 3: Assay warnings
+
+In this step, we evaluate **quality control (QC) warnings at the assay level**. Assays with a high percentage of warnings will be flagged and excluded from the dataset based on a predefined threshold to ensure data reliability.
+
+**Figure 11**: Bar plot showing the number of assays with warnings across different assays.
 
 ```{r}
 data_step_2 |>
@@ -377,31 +447,37 @@ assays_high_warnings <-
   distinct(Assay, n, n_total) |> 
   mutate(perc_warning = n / n_total) |> arrange(-n) |> 
   filter(perc_warning > 0.5) 
+```
 
+In the current dataset, the number of **assays with > 50% warnings is: `r nrow(assays_high_warnings)`**.  
+
+These assays will be excluded from further analysis.
+
+```{r}
 data_step_3 <- 
   data_step_2 |> 
   filter(!Assay %in% assays_high_warnings$Assay) |>
   select(-AssayQC)
 ```
 
-
-# 4 - Replicate samples (bridging)
+# Step 4: Bridging samples
+*This step is not applicable to the preprocessing of batch 1 alone. It will be updated once additional batches are incorporated into the preprocessing pipeline.*
 
 ```{r}
-# NA for batch 1
-#data_step_3
 data_step_4 <- 
   data_step_3
 ```
 
 
-# 5 - Replicate proteins
+# Step 5: Replicate proteins
 
-It is a good approach to remove replicate assays from downstream analysis. Since you have computed LOD, you may keep the assay with the largest fraction of datapoints above LOD. Alternatively, you may keep the assay with the largest NPX range from the 10th to the 90th percentile.
+In this step, we **assess replicate protein measurements**, where proteins are run multiple times (across different dilution blocks) in the Olink HT platform. We begin by examining the correlation of replicate assays and then select the **assay with the highest fraction of datapoints above the limit of detection (LOD)** for downstream analysis.
 
 ## Assay correlations 
 
-```{r}
+**Figure 12**: Scatterplot matrix showing the correlation of replicate protein measurements for GBP1. Each point represents a sample, colored by cohort, with the aim of visualizing the consistency between replicates.
+
+```{r warning=FALSE, message=FALSE}
 data_step_4 |> 
   filter(Assay == "GBP1") |> 
   select(OlinkID, NPX, DAid) |> 
@@ -415,7 +491,11 @@ data_step_4 |>
   theme_hpa() 
 
 #ggsave(savepath("GBP1_replicates.png"), h = 8, w = 8)
-  
+```
+
+**Figure 13**: Scatterplot matrix showing the correlation of replicate protein measurements for MAP2K1. Each point represents a sample, colored by cohort, with the aim of visualizing the consistency between replicates.
+
+```{r warning=FALSE, message=FALSE}
 data_step_4 |> 
   filter(Assay == "MAP2K1") |> 
   select(OlinkID, NPX, DAid) |> 
@@ -433,6 +513,8 @@ data_step_4 |>
 
 
 ## Selection of replicate assay based on LOD
+
+**Figure 14**: Bar plot showing the number of values under the LOD for each replicate assay. 
 
 ```{r}
 replicate_assays_lod <- 
@@ -453,7 +535,7 @@ replicate_assays_lod |>
   theme_hpa(angled = T) +
   ggtitle("Values under LOD per assay")
 
-ggsave(savepath("values_under_lod_replicate_assays.png"), h = 6, w = 7)
+#ggsave(savepath("values_under_lod_replicate_assays.png"), h = 6, w = 7)
 
 replicate_assays_remove <- 
   replicate_assays_lod |> 
@@ -465,39 +547,103 @@ data_step_5 <-
 ```
 
 
-# 6 - LOD investigation
+# Step 6: LOD investigation
 
-Potentially remove proteins that are under LOD in all (or most) samples
+In this step, we will **potentially investigate proteins under the limit of detection (LOD) across samples**. We consider potentially removing proteins that are under LOD in all (or most) samples. This decision will be evaluated once the additional batches are incorporated into the analysis. We will also explore the impact of removing assays with high missingness, particularly in machine learning models, to ensure optimal model performance (suggestion from Klev).
 
+# Step 7: Outlier exploration
 
-Klev: I totally understand the point of view of Mathias and I do I agree with him that very noisy assays could distort the ML model. However, this largely depends on the model you will be developing and how much you are going to tune it. Certainly, a model that contains only assays detected in over X% of samples in at least one disease is a simpler solution; on the other hand, it puts a lot of pressure on data QC and cleaning, and it might limit external users to only the set of assays you considered “useful”. This also puts some stress on you because you will have to decide on these thresholds, and there is rarely a golden solution in choosing them. I would perform all steps (1-7) from above and in this step (8) compare the performance of the same model with (no data removed because of high missingness) and without (keep only assays with X% detectability in at least one disease) assays with high missingness. I believe that the ML model and its tuning should be capable of having better performance and expandability when leveraging information from all the data; and all this without compromising the quality of the model or the biomarkers it identifies as highly relevant.
+In this step, we use **PCA and UAMP to explore potential outliers in the dataset**. By visualizing the data in lower dimensions, we can identify samples that may behave differently from the rest and may need further investigation or exclusion.
 
 
 ```{r}
-# data_step_6 <- data_step_5
-```
-
-
-# 7 - Outlier exploration
-
-## PCA
-
-## UMAP
-
-### All proteins
-
-```{r}
-input_umap_data <- 
-  data_step_4 |>
+# Prepare data
+input_data <- 
+  data_step_5 |>
   select(DAid, OlinkID, NPX) |>
   pivot_wider(names_from = "OlinkID", values_from = "NPX")
 
-umap_all_proteins <- 
-  do_umap(data = input_umap_data,
+exclude_proteins <- 
+  data_ht_lod |> 
+  filter(DAid %in% control_samples) |> 
+  mutate(under_LOD = ifelse(NPX < LOD, "Yes", "No")) |>
+  group_by(Assay) |> 
+  count(under_LOD) |> 
+  filter(under_LOD == "Yes") |> 
+  ungroup() |> 
+  filter(n >= (length(unique(data_ht$PlateID))*2))
+
+input_data_filt <- 
+  data_step_5 |>
+  filter(!Assay %in% exclude_proteins$Assay) |> 
+  select(DAid, OlinkID, NPX) |>
+  pivot_wider(names_from = "OlinkID", values_from = "NPX")
+```
+
+
+## PCA
+
+
+**Figure 15**: PCA visualization based on all proteins, where samples are colored by cohort.
+
+```{r}
+pca_all_proteins <-
+  do_pca(data = input_data,
+          plots = F)
+
+pca_all_proteins$pca_res |>
+  rename(DAid = Sample) |>
+  left_join(manifest, by = "DAid") |>
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggplot(aes(PC1, PC2, color = Cohort)) +
+  geom_point(alpha = 0.7, size = 0.8) +
+  scale_color_manual(values = pal_phase2) +
+  theme_hpa() +
+  ggtitle("All proteins")
+```
+
+**Figure 16**: PCA visualization based on proteins with high detectability, where samples are colored by cohort.
+
+```{r}
+pca_high_detectability <-
+  do_pca(data = input_data_filt,
+         plots = F)
+
+pca_high_detectability$pca_res |>
+  rename(DAid = Sample) |>
+  left_join(manifest, by = "DAid") |>
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggplot(aes(PC1, PC2, color = Cohort)) +
+  geom_point(alpha = 0.7, size = 0.8) +
+  scale_color_manual(values = pal_phase2) +
+  theme_hpa() +
+  ggtitle("Proteins with high detectability")
+```
+
+We identify the PCA outliers and remove them from the dataset.
+
+```{r}
+pca_outliers <- 
+  pca_all_proteins$pca_res |> 
+  filter(PC2 < -100) |> 
+  distinct(Sample)
+
+data_step_6 <-
+  data_step_5 |> 
+  filter(!DAid %in% pca_outliers$Sample)
+```
+
+## UMAP
+
+**Figure 17**: UMAP visualization based on all proteins, where samples are colored by cohort.
+
+```{r}
+umap_all_proteins <-
+  do_umap(data = input_data,
           plots = F)
 
 umap_all_proteins |>
-  rename(DAid = Sample) |> 
+  rename(DAid = Sample) |>
   left_join(manifest, by = "DAid") |>
   mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
   ggplot(aes(UMAP1, UMAP2, color = Cohort)) +
@@ -505,35 +651,17 @@ umap_all_proteins |>
   scale_color_manual(values = pal_phase2) +
   theme_hpa() +
   ggtitle("All proteins")
-
-ggsave(savepath("umap_p2.png"), h = 6, w = 7)
-
-umap_all_proteins |>
-  rename(DAid = Sample) |> 
-  left_join(manifest, by = "DAid") |>
-  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
-  ggplot(aes(UMAP1, UMAP2, color = Diagnose)) +
-  geom_point(alpha = 0.7, size = 0.8) +
-  #scale_color_manual(values = pal_phase2) +
-  theme_hpa()
-
 ```
 
-### High detectability 
+**Figure 18**: UMAP visualization based on proteins with high detectability, where samples are colored by cohort.
 
 ```{r}
-input_umap_data <- 
-  data_step_4 |>
-  filter(!Assay %in% exclude_proteins$Assay) |> 
-  select(DAid, OlinkID, NPX) |>
-  pivot_wider(names_from = "OlinkID", values_from = "NPX")
-
-umap_high_detectability <- 
-  do_umap(data = input_umap_data,
+umap_high_detectability <-
+  do_umap(data = input_data_filt,
           plots = F)
 
 umap_high_detectability |>
-  rename(DAid = Sample) |> 
+  rename(DAid = Sample) |>
   left_join(manifest, by = "DAid") |>
   mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
   ggplot(aes(UMAP1, UMAP2, color = Cohort)) +
@@ -541,16 +669,14 @@ umap_high_detectability |>
   scale_color_manual(values = pal_phase2) +
   theme_hpa() +
   ggtitle("Proteins with high detectability")
-
-ggsave(savepath("umap_p2_high_detectability.png"), h = 6, w = 7)
 ```
 
 
 # Save final data
 
-```{r}
-# Currently, last one is data_step_5
+After completing the quality control and data curation steps, we **save the cleaned and processed dataset for sharing with collaborators and for further downstream analysis**. This final dataset is ready for use in subsequent phases of the project.
 
-write_csv(data_step_5, file = "data/final_data/data_phase2_20241110.csv")  
+```{r}
+write_csv(data_step_6, file = "../data/final_data/data_phase2_batch1_curated_20241217.csv")  
 ```
 
