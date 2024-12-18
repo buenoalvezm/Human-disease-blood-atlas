@@ -17,7 +17,9 @@ do_pca <- function(data,
                    impute = T,
                    plots = F) {
   if (wide) {
-    data_w <- data
+    data_w <- 
+      data |> 
+      rename(Sample = DAid)
   } else {
     data_w <-
       data |>
