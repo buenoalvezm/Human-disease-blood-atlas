@@ -110,7 +110,9 @@ n_samples <-
 data_ht_lod <- olink_lod(data = data_hdba, lod_method = "NCLOD")
 
 ## Save raw data - including LOD calculation
-write_csv(data_ht_lod, file = "../data/final_data/data_phase2_batch1_raw_20241217.csv")  
+#write_csv(data_ht_lod, file = "../data/final_data/data_phase2_batch1_raw_20241217.csv")  
+write_tsv(data_ht_lod, file = "../data/final_data/data_phase2_batch1_raw_20241217.tsv")  
+#write.table(data_ht_lod, file = "../data/final_data/data_phase2_batch1_raw_20241217.txt")  
 ```
 
 
@@ -590,46 +592,46 @@ input_data_filt <-
 pca_all_proteins <-
   do_pca(data = input_data,
           plots = F)
-
-pca_all_proteins$pca_res |>
-  rename(DAid = Sample) |>
-  left_join(manifest, by = "DAid") |>
-  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
-  ggplot(aes(PC1, PC2, color = Cohort)) +
-  geom_point(alpha = 0.7, size = 0.8) +
-  scale_color_manual(values = pal_phase2) +
-  theme_hpa() +
-  ggtitle("All proteins")
+# 
+# pca_all_proteins$pca_res |>
+#   rename(DAid = Sample) |>
+#   left_join(manifest, by = "DAid") |>
+#   mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+#   ggplot(aes(PC1, PC2, color = Cohort)) +
+#   geom_point(alpha = 0.7, size = 0.8) +
+#   scale_color_manual(values = pal_phase2) +
+#   theme_hpa() +
+#   ggtitle("All proteins")
 ```
 
 **Figure 16**: PCA visualization based on proteins with high detectability, where samples are colored by cohort.
 
 ```{r}
-pca_high_detectability <-
-  do_pca(data = input_data_filt,
-         plots = F)
-
-pca_high_detectability$pca_res |>
-  rename(DAid = Sample) |>
-  left_join(manifest, by = "DAid") |>
-  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
-  ggplot(aes(PC1, PC2, color = Cohort)) +
-  geom_point(alpha = 0.7, size = 0.8) +
-  scale_color_manual(values = pal_phase2) +
-  theme_hpa() +
-  ggtitle("Proteins with high detectability")
+# pca_high_detectability <-
+#   do_pca(data = input_data_filt,
+#          plots = F)
+# 
+# pca_high_detectability$pca_res |>
+#   rename(DAid = Sample) |>
+#   left_join(manifest, by = "DAid") |>
+#   mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+#   ggplot(aes(PC1, PC2, color = Cohort)) +
+#   geom_point(alpha = 0.7, size = 0.8) +
+#   scale_color_manual(values = pal_phase2) +
+#   theme_hpa() +
+#   ggtitle("Proteins with high detectability")
 ```
 
 We identify the PCA outliers and remove them from the dataset.
 
 ```{r}
-pca_outliers <- 
-  pca_all_proteins$pca_res |> 
-  filter(PC2 < -100) |> 
+pca_outliers <-
+  pca_all_proteins$pca_res |>
+  filter(PC2 < -100) |>
   distinct(Sample)
 
 data_step_6 <-
-  data_step_5 |> 
+  data_step_5 |>
   filter(!DAid %in% pca_outliers$Sample)
 ```
 
@@ -638,37 +640,37 @@ data_step_6 <-
 **Figure 17**: UMAP visualization based on all proteins, where samples are colored by cohort.
 
 ```{r}
-umap_all_proteins <-
-  do_umap(data = input_data,
-          plots = F)
-
-umap_all_proteins |>
-  rename(DAid = Sample) |>
-  left_join(manifest, by = "DAid") |>
-  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
-  ggplot(aes(UMAP1, UMAP2, color = Cohort)) +
-  geom_point(alpha = 0.7, size = 0.8) +
-  scale_color_manual(values = pal_phase2) +
-  theme_hpa() +
-  ggtitle("All proteins")
+# umap_all_proteins <-
+#   do_umap(data = input_data,
+#           plots = F)
+# 
+# umap_all_proteins |>
+#   rename(DAid = Sample) |>
+#   left_join(manifest, by = "DAid") |>
+#   mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+#   ggplot(aes(UMAP1, UMAP2, color = Cohort)) +
+#   geom_point(alpha = 0.7, size = 0.8) +
+#   scale_color_manual(values = pal_phase2) +
+#   theme_hpa() +
+#   ggtitle("All proteins")
 ```
 
 **Figure 18**: UMAP visualization based on proteins with high detectability, where samples are colored by cohort.
 
 ```{r}
-umap_high_detectability <-
-  do_umap(data = input_data_filt,
-          plots = F)
-
-umap_high_detectability |>
-  rename(DAid = Sample) |>
-  left_join(manifest, by = "DAid") |>
-  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
-  ggplot(aes(UMAP1, UMAP2, color = Cohort)) +
-  geom_point(alpha = 0.7, size = 0.8) +
-  scale_color_manual(values = pal_phase2) +
-  theme_hpa() +
-  ggtitle("Proteins with high detectability")
+# umap_high_detectability <-
+#   do_umap(data = input_data_filt,
+#           plots = F)
+# 
+# umap_high_detectability |>
+#   rename(DAid = Sample) |>
+#   left_join(manifest, by = "DAid") |>
+#   mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+#   ggplot(aes(UMAP1, UMAP2, color = Cohort)) +
+#   geom_point(alpha = 0.7, size = 0.8) +
+#   scale_color_manual(values = pal_phase2) +
+#   theme_hpa() +
+#   ggtitle("Proteins with high detectability")
 ```
 
 
@@ -677,6 +679,8 @@ umap_high_detectability |>
 After completing the quality control and data curation steps, we **save the cleaned and processed dataset for sharing with collaborators and for further downstream analysis**. This final dataset is ready for use in subsequent phases of the project.
 
 ```{r}
-write_csv(data_step_6, file = "../data/final_data/data_phase2_batch1_curated_20241217.csv")  
+#write_csv(data_step_6, file = "../data/final_data/data_phase2_batch1_curated_20241217.csv") 
+write_tsv(data_step_6, file = "../data/final_data/data_phase2_batch1_curated_20241217.tsv") 
+#write.table(data_step_6, file = "../data/final_data/data_phase2_batch1_curated_20241217.txt")  
 ```
 
