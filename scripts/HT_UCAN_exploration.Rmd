@@ -558,6 +558,15 @@ write_csv(data_step_5, file = "data/final_data/data_phase2_20240916.csv")
 # Cohort overview
 
 ```{r}
+
+data_step_5 <- read_csv(file = "data/final_data/data_phase2_batch1_curated_20241217.csv")  
+
+```
+
+
+```{r}
+
+
 filtered_ucan |> 
   distinct(DAid) |> 
   left_join(manifest, by = "DAid") |> 
@@ -927,6 +936,86 @@ p_pval <-
 p_fc / p_pval
 
 ggsave(savepath("p1_p2_ucan.png"), h = 10, w = 16)
+```
+
+# Examples
+
+```{r}
+# proteins <- c("CXCL8", "WFDC2", "EGFR",
+#               "AREG", "LGALS4",
+#               "CXCL17", "CEACAM5",
+#               "PAEP", "MUC16",
+#               "FAP")
+
+proteins <- c("EGFR",
+              "LGALS4",
+              "CXCL17", 
+              "PAEP",
+              "FAP")
+
+
+# HT
+plot_ht <- 
+  filtered_ucan_final |> 
+    left_join(manifest, by = "DAid") |> 
+    filter(Diagnose %in% names(pal_ucan),
+           Assay %in% proteins) |> 
+    mutate(Assay = factor(Assay, levels = proteins)) |> 
+  filter(NPX > LOD) |> 
+    ggplot(aes(Diagnose, NPX, fill = Diagnose, color = Diagnose)) +
+    geom_quasirandom(alpha = 0.7) +
+    geom_boxplot(
+      alpha = 0.3,
+      outlier.color = NA,
+      color = "grey20"
+    ) +
+    scale_color_manual(values = pal_ucan) +
+    scale_fill_manual(values = pal_ucan) +
+    facet_wrap(~Assay, scales = "free_y", nrow = 1) +
+    theme_hpa(angled = T, axis_x = F) +
+    xlab("") +
+  ggtitle("Olink HT")
+
+
+# 1.5
+data_NPX <- read_csv(file = "data/processed/final_data/data_phase1_20240604.csv")  
+
+pal_ucan_p1 <- c("LUNGC" = "#ADC74F",
+                 "CRC" = "#B89B74", 
+                 "BRC" = "#E8A29A", 
+                 "OVC" = "#603479", 
+                 "PRC" = "#E7662B" )
+
+data_ucan_p1 <- 
+  data_NPX |> 
+  left_join(manifest, by = "DAid") |> 
+  filter(Cohort == "UCAN",
+         Diagnose %in% names(pal_ucan_p1))
+
+
+plot_p1 <- 
+  data_ucan_p1 |> 
+    filter(Assay %in% proteins,
+           NPX > LOD) |> 
+    mutate(Assay = factor(Assay, levels = proteins)) |> 
+    ggplot(aes(Diagnose, NPX, fill = Diagnose, color = Diagnose)) +
+    geom_quasirandom(alpha = 0.7) +
+    geom_boxplot(
+      alpha = 0.3,
+      outlier.color = NA,
+      color = "grey20"
+    ) +
+    scale_color_manual(values = pal_ucan_p1) +
+    scale_fill_manual(values = pal_ucan_p1) +
+    facet_wrap(~Assay, scales = "free_y", nrow = 1) +
+    theme_hpa(angled = T, axis_x = F) +
+    xlab("") +
+    ggtitle("Olink Explore 1.5K")
+
+plot_p1 /plot_ht 
+
+ggsave(savepath("examples.png"), h = 7, w = 10)
+
 ```
 
 

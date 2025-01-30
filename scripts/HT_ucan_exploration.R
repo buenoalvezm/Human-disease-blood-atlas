@@ -28,6 +28,8 @@ replicate_exclude <-
          Block != "5") |> 
   pull(OlinkID)
 
+
+
 filtered_ucan <- 
   ucan_ht |>
   filter(SampleType == "SAMPLE",
@@ -35,6 +37,20 @@ filtered_ucan <-
          !OlinkID %in% replicate_exclude) |> 
   separate(SampleID, into = c("DAid", "Batch", "Plate"), sep = "-") 
 
+# LOD
+filtered_ucan_lod <- olink_lod(data = ucan_ht, lod_method = "NCLOD")
+
+
+filtered_ucan_final <- 
+  filtered_ucan_lod |>
+  filter(SampleType == "SAMPLE",
+         AssayType == "assay",
+         !OlinkID %in% replicate_exclude) |> 
+  separate(SampleID, into = c("DAid", "Batch", "Plate"), sep = "-") 
+
+
+
+  
 # Number of samples
 pal_ucan <- c("LUNG" = "#ADC74F",
               "CRC" = "#B89B74", 
@@ -54,7 +70,7 @@ filtered_ucan |>
   scale_fill_manual(values = pal_ucan) +
   theme_hpa(angled = T)
 
-ggsave(savepath("ucan_samples.png"), width = 4, height = 5)
+ggsave(savepath("ucan_samples.png"), width = 4, height = 4)
 
 # PCA
 pca_ucan <- 
