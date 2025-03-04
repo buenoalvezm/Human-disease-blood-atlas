@@ -130,6 +130,7 @@ do_umap <- function(data,
       step_impute_knn(all_predictors()) |>
       step_umap(all_predictors(), neighbors = n_neighbors)
     
+    set.seed(213)
     umap_prep <- prep(umap_rec)
     
   } else {
@@ -139,6 +140,7 @@ do_umap <- function(data,
       step_normalize(all_predictors()) |>
       step_umap(all_predictors(), neighbors = n_neighbors)
     
+    set.seed(213)
     umap_prep <- prep(umap_rec)
     
   }
