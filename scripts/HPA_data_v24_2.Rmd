@@ -1,0 +1,307 @@
+---
+title: "HPA_data_v24_2"
+output: html_document
+date: "2025-02-25"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+
+source("scripts/functions/functions_visualization.R")
+source("scripts/functions/themes_palettes.R")
+
+manifest <- read_excel("data/samples_2025-01-30.xlsx")
+data_ht_phase2_batch1 <- read_tsv("data/final_data/data_phase2_batch1_curated_20241217.tsv")
+data_ht_phase2_batch2 <- read_tsv("data/final_data/data_phase2_batch2_curated_20250127.tsv") 
+
+```
+
+
+# Wellness data
+
+## Metadata
+
+```{r}
+# Extract relevant information from Wellness metadata
+meta_wellness <- 
+  manifest |> 
+  filter(Cohort == "WELL",
+         DAid %in% data_ht_phase2_batch1$DAid) |> 
+  select(DAid, Age, Sex, `Extra data`) |> 
+  mutate(
+    Visit = str_extract(`Extra data`, "(?<=visit: )\\d+"),                    Date = str_extract(`Extra data`, "(?<=sample_date: )\\d{4}-\\d{2}-\\d{2}"),
+    Subject = str_extract(`Extra data`, "(?<=subject_id: )\\d+-\\d+")) |> 
+  select(-`Extra data`)
+```
+
+## Filter data
+
+```{r}
+# Filter Wellness data to samples in the metadata
+data_wellness <- 
+  data_ht_phase2_batch1 |> 
+  filter(DAid %in% meta_wellness$DAid) |> 
+  select(DAid, OlinkID, Assay, NPX, LOD)
+```
+
+## Duplicated visits
+
+
+```{r}
+duplicated_entries <- 
+  meta_wellness |> 
+  group_by(Subject) |> 
+  count(Visit) |> 
+  filter(n > 1) 
+
+# meta_wellness |> 
+#   inner_join(duplicated_entries, by = c("Subject", "Visit")) 
+
+DAid_exclude <- c("DA11971", "DA12092", "DA12126")
+
+data_wellness <-
+  data_wellness |>
+  filter(!DAid %in% DAid_exclude)
+
+meta_wellness <-
+  meta_wellness |>
+  filter(!DAid %in% DAid_exclude)
+```
+
+## Remove samples with fewer visits
+
+```{r}
+number_of_visits <- 
+  meta_wellness |> 
+  group_by(Subject) |> 
+  summarise(Number_of_visits = n_distinct(Visit)) |> 
+  arrange(Number_of_visits)  
+
+#write_tsv(number_of_visits, savepath("number_of_visits.tsv"))
+
+subjects_limited_visits <- 
+  number_of_visits |> 
+  filter(Number_of_visits < 3) |>
+  pull(Subject)
+
+DAid_exclude_limited_visits <- 
+  meta_wellness |> 
+  filter(Subject %in% subjects_limited_visits) |> 
+  pull(DAid)
+
+# Exclusion of subjects with < 3 visits
+data_wellness <-
+  data_wellness |>
+  filter(!DAid %in% DAid_exclude_limited_visits)
+
+meta_wellness <-
+  meta_wellness |>
+  filter(!DAid %in% DAid_exclude_limited_visits)
+```
+
+## UMAP - outliers
+
+```{r}
+umap_wellness <- 
+  do_umap(data = data_wellness, wide = F, impute = T, plots = F)
+
+umap_wellness |> 
+  left_join(meta_wellness |> 
+              select(DAid, Subject, Visit), by =c("Sample" = "DAid")) |>
+  ggplot(aes(UMAP1, UMAP2, color = Subject, frame = Visit)) +
+  geom_point(show.legend = F) +
+  theme_hpa()
+
+
+exclude_samples_wellness_umap <- 
+  umap_wellness |> 
+  filter(UMAP1 > 5) |> 
+  #filter(UMAP1 < -5 | UMAP1 > 5 | UMAP2 < -5) |> 
+  distinct(Sample) |> 
+  left_join(meta_wellness |> 
+              select(DAid, Subject, Visit), by =c("Sample" = "DAid")) 
+
+# Exclusion of subjects UMAP outliers
+data_wellness <-
+  data_wellness |>
+  filter(!DAid %in% exclude_samples_wellness_umap$Sample)
+
+meta_wellness <-
+  meta_wellness |>
+  filter(!DAid %in% exclude_samples_wellness_umap$Sample)
+```
+
+## LOD
+
+```{r}
+lod_sample_dat <- 
+  data_wellness |> 
+  mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No")) |> 
+  group_by(DAid) |> 
+  count(above_LOD) 
+
+lod_sample_dat_order <- 
+  lod_sample_dat |> 
+  filter(above_LOD == "Yes") |>
+  arrange(-n)
+
+lod_sample_dat|> 
+  left_join(meta_wellness, by = "DAid") |> 
+  mutate(DAid = factor(DAid, levels = lod_sample_dat_order$DAid)) |>
+  ggplot(aes(DAid, n, fill = above_LOD)) +
+  geom_col() +
+  facet_wrap(~Subject, scales= "free_x", nrow = 2) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) 
+```
+
+## Save
+
+```{r}
+write_tsv(data_wellness, "data/final_data/HPA/v24_2/wellness_data_ht_phase2.tsv")
+write_tsv(meta_wellness, "data/final_data/HPA/v24_2/wellness_meta_ht_phase2.tsv")
+```
+
+
+# BAMSE data
+
+## Metadata
+
+```{r}
+meta_bamse <- 
+  manifest |> 
+  filter(DAid %in% data_ht_phase2_batch1$DAid,
+         !grepl("lung_function", Diagnose),
+         !grepl("back-up", Diagnose),
+         Cohort == "BAMS") |> 
+  mutate(Diagnose = gsub("_random", "", Diagnose),
+         Visit = factor(Diagnose, levels = c("4", "8", "16", "24")),
+         Subject = str_extract(`Vial barcode`, "(?<=_)[0-9]+"),
+         Date = str_extract(`Extra data`, "(?<=date_of_plasma_collection: )\\d{4}-\\d{2}-\\d{2}")  
+  ) |> 
+  select(DAid, Age, Sex, Visit, Date, Subject)
+
+data_bamse <- 
+  data_ht_phase2_batch1 |> 
+  filter(DAid %in% meta_bamse$DAid)|> 
+  select(DAid, OlinkID, Assay, NPX, LOD)
+```
+
+## UMAP - outliers
+
+```{r}
+umap_bamse <- 
+  do_umap(data = data_bamse, wide = F, impute = T, plots = F)
+
+umap_bamse |> 
+  left_join(meta_bamse |> 
+              select(DAid, Subject, Visit), by =c("Sample" = "DAid")) |>
+  ggplot(aes(UMAP1, UMAP2, color = Subject, frame = Visit)) +
+  geom_point(show.legend = F) +
+  theme_hpa()
+```
+## LOD
+
+```{r}
+lod_sample_dat <- 
+  data_bamse |> 
+  mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No")) |> 
+  group_by(DAid) |> 
+  count(above_LOD) 
+
+lod_sample_dat_order <- 
+  lod_sample_dat |> 
+  filter(above_LOD == "Yes") |>
+  arrange(-n)
+
+lod_sample_dat|>
+  mutate(DAid = factor(DAid, levels = lod_sample_dat_order$DAid)) |>
+  ggplot(aes(DAid, n, fill = above_LOD)) +
+  geom_col() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) 
+```
+
+## Save
+
+```{r}
+write_tsv(data_bamse, "data/final_data/HPA/v24_2/bamse_data_ht_phase2.tsv")
+write_tsv(meta_bamse, "data/final_data/HPA/v24_2/bamse_meta_ht_phase2.tsv")
+```
+
+# UCAN
+
+## Metadata
+
+```{r}
+meta_ucan <- 
+  manifest |> 
+  filter(Cohort == "UCA2",
+          DAid %in% data_ht_phase2_batch2$DAid) |> 
+  select(DAid, Age, Sex, Diagnose) |> 
+  mutate(Disease = case_when(Diagnose == "BRC" ~ "Breast cancer",
+                             Diagnose == "CRC" ~ "Colorectal cancer",
+                             Diagnose == "LUNG" ~ "Lung cancer",
+                             Diagnose == "OVC" ~ "Ovarian cancer",
+                             Diagnose == "PRC" ~ "Prostate cancer")) |> 
+  select(-Diagnose)
+```
+
+## Filter data
+
+```{r}
+# Filter Wellness data to samples in the metadata
+data_ucan <- 
+  data_ht_phase2_batch2 |> 
+  filter(DAid %in% meta_ucan$DAid) |> 
+  select(DAid, OlinkID, Assay, NPX, LOD)
+```
+
+## UMAP - outliers
+
+```{r}
+umap_ucan <- 
+  do_umap(data = data_ucan, wide = F, impute = T, plots = F)
+
+umap_ucan |> 
+  left_join(meta_ucan |> 
+              select(DAid, Disease), by =c("Sample" = "DAid")) |>
+  ggplot(aes(UMAP1, UMAP2, color = Disease)) +
+  geom_point() +
+  theme_hpa()
+
+```
+
+## LOD
+
+```{r}
+lod_sample_dat <- 
+  data_ucan |> 
+  mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No")) |> 
+  group_by(DAid) |> 
+  count(above_LOD) 
+
+lod_sample_dat_order <- 
+  lod_sample_dat |> 
+  filter(above_LOD == "Yes") |>
+  arrange(-n)
+
+lod_sample_dat|> 
+  left_join(meta_ucan, by = "DAid") |> 
+  mutate(DAid = factor(DAid, levels = lod_sample_dat_order$DAid)) |>
+  ggplot(aes(DAid, n, fill = above_LOD)) +
+  geom_col() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) 
+```
+
+## Save
+
+```{r}
+write_tsv(data_ucan, "data/final_data/HPA/v24_2/ucan_data_ht_phase2.tsv")
+write_tsv(meta_ucan, "data/final_data/HPA/v24_2/ucan_meta_ht_phase2.tsv")
+```
+
