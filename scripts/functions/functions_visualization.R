@@ -145,6 +145,7 @@ do_umap <- function(data,
     
   }
   
+  set.seed(213)
   umap_res <-  juice(umap_prep)
   
   if (plots) {
