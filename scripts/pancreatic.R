@@ -12,6 +12,16 @@ new_manifest <- read_excel("data/samples_2024-12-17.xlsx")
 
 daid_patients_2_3 <- c("DA12362", "DA12363")
 
+data_b4 |> 
+  filter(Assay == "GFAP")
+
+data_b4 |> 
+  filter(Assay == "MAP2K1")
+
+data_b4 |> 
+  filter(Assay == "GBP1")
+
+
 data <- 
   data_b4 |> 
   filter(SampleType == "SAMPLE",
