@@ -14,6 +14,9 @@ getPalette3 = colorRampPalette(brewer.pal(8, "Set2"))
 pal_class<-getPalette3(8)
 names(pal_class)<-c("Psychiatric","Cardiovascular","Cancer","Autoimmune","Pediatric","Infection","Metabolic","Healthy") 
 
+pal_class_2 <- pal_class
+names(pal_class_2)<-c("Neurologic","Cardiovascular","Cancer","Autoimmune","Pediatric","Infection","Metabolic","Healthy") 
+
 pal_platforms <- 
   c("HT" = "#D69DCA",
     "3K" = "#D6EDDA", 
