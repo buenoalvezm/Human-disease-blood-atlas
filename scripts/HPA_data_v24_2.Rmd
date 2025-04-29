@@ -13,10 +13,70 @@ library(readxl)
 source("scripts/functions/functions_visualization.R")
 source("scripts/functions/themes_palettes.R")
 
+# LIMS manifest
 manifest <- read_excel("data/samples_2025-01-30.xlsx")
+
+# Phase 1 data
+resource_data <- read_csv("data/processed/final_data/data_resource_20240604.csv")
+resource_meta <- read_csv("data/processed/final_data/metadata_resource_20240715.csv")
+
+# Phase 2 data
 data_ht_phase2_batch1 <- read_tsv("data/final_data/data_phase2_batch1_curated_20241217.tsv")
 data_ht_phase2_batch2 <- read_tsv("data/final_data/data_phase2_batch2_curated_20250127.tsv") 
 
+```
+
+# Pan-disease data 
+
+## Exclude non-EDTA
+
+```{r}
+# Exclude cohorts with non-EDTA samples
+exclude_cohorts <- c("SPS3", "SPS8")
+
+# Filter to match data & metadata samples
+meta_disease <- 
+  resource_meta |> 
+  filter(DAid %in% resource_data$DAid,
+         !Cohort %in% exclude_cohorts) |> 
+  mutate(Disease = ifelse(Disease == "Scleroderma", "Systemic sclerosis", Disease),
+         Disease = ifelse(Disease == "Melanoma", "Metastatic melanoma", Disease),
+         Age = ifelse(Age == 0 & Class != "Pediatric", NA, Age)) |> 
+  select(DAid, Cohort, Age, Sex, BMI, Class, Disease)
+
+data_disease <- 
+  resource_data |> 
+  filter(DAid %in% resource_meta_processed$DAid) |> 
+  select(DAid, OlinkID, Assay, NPX, LOD)
+
+# Plot number of samples misesd
+affected <- 
+  resource_meta |> 
+  filter(DAid %in% resource_data$DAid,
+         !DAid %in% resource_meta_processed$DAid) |> 
+  distinct(Disease) |> 
+  pull()
+
+resource_meta |> 
+  filter(Disease %in% affected) |> 
+  mutate(Kept = ifelse(DAid %in% resource_meta_processed$DAid, "Yes", "No")) |> 
+  count(Kept, Disease) |>
+  ggplot(aes(Disease, n, fill = Kept)) +
+  geom_col() +
+  geom_text(aes(label = n), position = position_stack(vjust = 0.5)) +  
+  theme_hpa(angled = T) +
+  scale_fill_brewer() +
+  ggtitle("Non-EDTA sample exclusion")  
+
+
+#ggsave(savepath("non-edta-samples-excluded.png"))
+```
+
+## Save
+
+```{r}
+write_tsv(data_disease, "data/final_data/HPA/v24_2/disease_data_phase1.tsv")
+write_tsv(meta_disease, "data/final_data/HPA/v24_2/disease_meta_phase1.tsv")
 ```
 
 
@@ -303,5 +363,60 @@ lod_sample_dat|>
 ```{r}
 write_tsv(data_ucan, "data/final_data/HPA/v24_2/ucan_data_ht_phase2.tsv")
 write_tsv(meta_ucan, "data/final_data/HPA/v24_2/ucan_meta_ht_phase2.tsv")
+```
+
+# DE
+
+```{r}
+combined_de <- readRDS("../Human-blood-atlas/data/processed/DE/combined_de.rds")
+
+combined_de_old <- read_tsv("data/data_to_IT/differential_expression_data.tsv")
+
+# Add OlinkID
+mapping <- 
+  resource_data |> 
+  distinct(Assay, OlinkID)
+
+final_de <- 
+  combined_de |> 
+  left_join(mapping, by = "Assay") |> 
+  select(Disease, Control, Assay, OlinkID, NPX_difference = logFC, p.adjusted = adj.P.Val, Significance)
+```
+
+## Compare to previous
+
+```{r}
+dat <- 
+  combined_de |> 
+  left_join(combined_de_old |>
+              mutate(Control = ifelse(Control == "ALl other diseases", "All other diseases", Control),
+                     Disease = ifelse(Disease == "Melanoma", "Metastatic melanoma", Disease)) |> 
+              rename(logFC_old = NPX_difference,
+                     adj.P.Val_old = p.adjusted,
+                     Significance_old = Significance), by = c("Disease", "Control", "Assay")) 
+
+dat|> 
+  ggplot(aes(logFC, logFC_old, color = Control)) +
+  geom_point() +
+  facet_wrap(~Disease, scales = "free") +
+  ggtitle("Comparison FC")
+
+ggsave("results/comparison_fc_v24_new.png", h = 15, w = 15)
+
+dat|> 
+  ggplot(aes(-log10(adj.P.Val), -log10(adj.P.Val_old), color = Control)) +
+  geom_point() +
+  facet_wrap(~Disease, scales = "free") +
+  ggtitle("Comparison p-value")
+
+ggsave("results/comparison_pval_v24_new.png", h = 15, w = 15)
+
+
+```
+
+# ML
+
+```{r}
+write_tsv(final_de, "data/final_data/HPA/v24_2/disease_de.tsv")
 ```
 
