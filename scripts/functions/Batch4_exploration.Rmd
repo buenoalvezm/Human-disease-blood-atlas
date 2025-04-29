@@ -1,0 +1,1052 @@
+---
+title: "Untitled"
+output: html_document
+date: "2025-04-02"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include=FALSE}
+# Load packages
+library(tidyverse) 
+library(ggplotify)
+library(patchwork)
+library(pheatmap)
+library(ggbeeswarm)
+library(ggrepel)
+library(GGally)
+library(arrow)
+library(OlinkAnalyze)
+
+# Read internal functions
+source("scripts/functions/functions_utility.R")
+source("scripts/functions/functions_visualization.R")
+source("scripts/functions/themes_palettes.R")
+
+# Load Olink NPX data and LIMS manifest
+data_ht <- read_NPX("data/VL 3530B4 Extended NPX Mar 25 2025.parquet")
+manifest <- import_df("data/samples_2025-04-07.xlsx")
+
+data <- 
+  data_ht |> 
+  separate(SampleID, into = c("DAid", "Batch", "Plate"), sep = "-", remove = F)  
+```
+
+# Replicate assays
+
+```{r}
+data_ht |> 
+  filter(Assay == "GBP1")
+
+data_ht |> 
+  filter(Assay == "MAP2K1")
+
+data_ht |> 
+  filter(Assay == "GFAP")
+
+data_ht |> 
+  count(Block,Assay) |> 
+  arrange(n) |> filter(Assay == "MAP2K1")
+```
+
+
+# Sample distribution
+
+```{r}
+data |> 
+  distinct(SampleType)
+
+sample_da <- 
+  data |> 
+  filter(SampleType == "SAMPLE")
+
+disease_order <- 
+  manifest |> 
+  filter(DAid %in% sample_da$DAid) |> 
+  count(Disease, Class) |>
+  mutate(Class = factor(Class, levels = names(pal_class_2))) |> 
+  arrange(Class, -n) |> 
+  select(-Class) |> 
+  distinct(Disease)
+
+manifest |> 
+  filter(DAid %in% sample_da$DAid) |> 
+  filter(is.na(Disease)) |> 
+  count(Cohort)
+
+  
+manifest |> 
+  filter(DAid %in% sample_da$DAid) |> 
+  count(Disease, Class) |> 
+  mutate(Disease = factor(Disease, levels = disease_order$Disease)) |>
+  ggplot(aes(Disease, n, fill = Class)) +
+  geom_col(show.legend = F) +
+ # geom_text(aes(label = n, y = n + 10), size = 4) +
+  scale_fill_manual(values = pal_class_2) +
+  theme_hpa(angled = T) +
+  ylab("Number of samples") +
+  xlab("") +
+
+manifest |> 
+  filter(DAid %in% sample_da$DAid) |>
+  mutate(Cohort = paste(Cohort, `PI - sample owner`)) |> 
+  count(Cohort, Class) |> 
+  #mutate(Disease = factor(Disease, levels = disease_order$Disease)) |>
+  ggplot(aes(fct_reorder(Cohort, -n), n, fill = Class)) +
+  geom_col() +
+ # geom_text(aes(label = n, y = n + 10), size = 4) +
+  scale_fill_manual(values = pal_class_2) +
+  theme_hpa(angled = T) +
+  ylab("Number of samples") +
+  xlab("") 
+
+ggsave(savepath("Phase 2 samples.png"), h = 7, w = 16)
+```
+
+
+# Look at assay QC
+
+```{r}
+
+data |> 
+  filter(AssayType == "assay") |> 
+  group_by(Assay) |> 
+  count(AssayQC) |>
+  ungroup() |> 
+  filter(AssayQC == "WARN") |> 
+  arrange(-n) |> 
+  ggplot(aes(fct_reorder(Assay, -n), n)) +
+  geom_col(fill = "grey") +
+  geom_text(aes(label = n, y = n + 10), size = 4) +
+  theme_hpa(angled = T) +
+  xlab("")
+
+ggsave(savepath("assay_warnings.png"), h = 5, w = 5)
+
+
+data |> 
+  filter(SampleType == "SAMPLE") |> 
+  group_by(DAid) |> 
+  count(SampleQC) |>
+  ungroup() |> 
+  filter(SampleQC != "PASS") |> 
+  arrange(-n) |> 
+  ggplot(aes(fct_reorder(DAid, -n), n, fill = SampleQC)) +
+  geom_col() +
+  theme_hpa(angled = T) +
+  xlab("")
+
+ggsave(savepath("sample_warnings.png"), h = 5, w = 15)
+
+manifest |> 
+  filter(DAid %in% c("DA17770", "DA16919")) |> View()
+```
+
+# Types of errors
+
+```{r}
+colnames(data_ht)
+
+
+data_ht |> 
+  count(BlockQCFail)
+ 
+data_ht |> 
+  count(AssayQC, AssayQCWarn, BlockQCFail)   
+
+data_ht |> 
+  count(Block, SampleBlockQCWarn)
+  count(SampleQC, SampleBlockQCWarn, SampleBlockQCFail)
+```
+
+
+
+# Look at plate differences (% warnings etc)
+
+```{r}
+
+```
+
+# LOD distribution per disease
+
+```{r}
+data
+```
+
+## Plots
+
+```{r}
+data_ht_lod <- olink_lod(data = data, lod_method = "NCLOD")
+
+dat_lod <- 
+  data_ht_lod |> 
+  mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No")) |> 
+  filter(!DAid %in% c("DA17770", "DA16919")) |> 
+  left_join(manifest, by = "DAid") |>
+  group_by(Assay, Cohort) |> 
+  count(above_LOD) |> 
+  filter(above_LOD == "Yes")
+
+dat_lod |> 
+  ggplot(aes(n)) +
+  geom_histogram() +
+  facet_wrap(~Cohort, scale = "free") +
+  theme_hpa()
+  
+#ggsave(savepath("lod_disease.png"), h = 7, w = 9)  
+```
+# *UMAP control samples
+
+```{r}
+umap_controls <- 
+  data_ht_lod |> 
+  filter(DAid %in% control_samples,
+         !Assay %in% exclude_proteins$Assay) |> 
+  select(DAid = SampleID, Assay, NPX) |> 
+  do_umap(wide = F)
+
+umap_controls |> 
+  left_join(id_mapping, by = c("Sample" = "SampleID")) |> 
+  ggplot(aes(UMAP1, UMAP2, color = DAid)) +
+  geom_point() +
+  theme_hpa() +
+
+umap_controls |> 
+  left_join(id_mapping, by = c("Sample" = "SampleID")) |> 
+  ggplot(aes(UMAP1, UMAP2, color = Plate)) +
+  geom_point() +
+  theme_hpa()
+
+ggsave(savepath("UMAP_patient_2_3.png"), h = 5, w = 10)
+```
+
+# * Raincloud per plate per patient + overall
+
+```{r}
+source("https://gist.githubusercontent.com/benmarwick/2a1bb0133ff568cbe28d/raw/fb53bd97121f7f9ce947837ef1a4c65a73bffb3f/geom_flat_violin.R")
+
+# Patient 2
+dat <- 
+  data_ht_lod |> 
+  filter(DAid %in% c("DA12362", "DA12363")) |> 
+  group_by(DAid,Assay) |> 
+  summarise(NPX = mean(NPX))  
+
+labels <- 
+  dat %>% 
+  group_by(DAid) %>% 
+  top_n(wt = NPX, n = 10) %>% 
+  bind_rows(dat %>% 
+              group_by(DAid) %>% 
+              top_n(wt = -NPX, n = 10))
+
+dat |> 
+  ggplot(aes(x = DAid, y = NPX, fill = DAid)) +
+  geom_flat_violin(position = position_nudge(x = 0.2, y = 0), alpha = 0.8) +
+  geom_point(aes(y = NPX),
+             position = position_jitter(width = 0.15), size = 1, alpha = 0.1) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, alpha = 0.8) +
+  guides(fill = FALSE, color = FALSE) +
+  geom_text_repel(data = labels, aes(label = Assay), size = 3,show.legend = F) +
+#  scale_fill_manual(values = palettes$alt_group[levels$cancers_12]) +
+ # scale_colour_manual(values = palettes$alt_group[levels$cancers_12]) +
+  theme_hpa()
+
+# Per plate
+dat <- 
+  data_ht_lod |> 
+  filter(DAid %in% c("DA12362", "DA12363")) |> 
+   mutate(Plate = gsub("P", "", Plate), 
+         Plate = as.numeric(Plate)) 
+  
+labels <- 
+  dat %>% 
+  group_by(SampleID) %>% 
+  top_n(wt = NPX, n = 5) %>% 
+  bind_rows(dat %>% 
+              group_by(SampleID) %>% 
+              top_n(wt = -NPX, n = 5))
+
+dat |> 
+  select(DAid, SampleID, Plate, Assay, NPX) |> 
+  ggplot(aes(x = fct_reorder(SampleID, Plate), y = NPX, fill = Plate, color = Plate)) +
+  geom_flat_violin(position = position_nudge(x = 0.2, y = 0), alpha = 0.8) +
+  geom_point(aes(y = NPX),
+             position = position_jitter(width = 0.15), size = 1, alpha = 0.1) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, alpha = 0.8) +
+  guides(fill = FALSE, color = FALSE) +
+  facet_wrap(~DAid, nrow = 2, scales = "free_x") +
+  geom_text_repel(data = labels, aes(label = Assay), size = 3) +
+#  scale_fill_manual(values = palettes$alt_group[levels$cancers_12]) +
+ # scale_colour_manual(values = palettes$alt_group[levels$cancers_12]) +
+  theme_hpa(angled = T, axis_x = F)
+
+ggsave(savepath("raincloud_controls_perplate.png"), h = 10, w = 14)
+
+# Overall
+dat <- 
+  data_ht_lod |> 
+  left_join(manifest, by = "DAid") |> 
+  group_by(Class, Disease, Assay) |> 
+  summarise(NPX = mean(NPX))
+  
+labels <- 
+  dat %>% 
+  group_by(Class, Disease) %>% 
+  top_n(wt = NPX, n = 5) %>% 
+  bind_rows(dat %>% 
+              group_by(Class, Disease) %>% 
+              top_n(wt = -NPX, n = 5))
+
+dat |> 
+  ggplot(aes(x = Disease, y = NPX, fill = Disease, color = Disease)) +
+  geom_flat_violin(position = position_nudge(x = 0.2, y = 0), alpha = 0.8) +
+  geom_point(aes(y = NPX),
+             position = position_jitter(width = 0.15), size = 1, alpha = 0.1) +
+  geom_boxplot(width = 0.2, outlier.shape = NA, alpha = 0.8, color = "grey20") +
+  guides(fill = FALSE, color = FALSE) +
+  geom_text(data = labels, aes(label = Assay), size = 3,show.legend = F) +
+  #scale_fill_manual(values = pal_class_2) +
+  #scale_colour_manual(values = pal_class_2) +
+  theme_hpa(angled = T)
+
+ggsave(savepath("raincloud_controls_perdisease.png"), h = 10, w = 12)
+```
+
+
+
+
+
+
+# PCA
+
+```{r}
+proteins_low <- 
+  data_ht_lod |> 
+  mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No")) |> 
+  filter(!DAid %in% c("DA17770", "DA16919")) |> 
+  left_join(manifest, by = "DAid") |>
+  group_by(Assay) |> 
+  count(above_LOD) |> 
+  filter(above_LOD == "Yes",
+         n < 500) 
+
+pca_data <- 
+  data |> 
+  filter(SampleType == "SAMPLE",
+         AssayType == "assay") |> 
+   filter(!Assay %in% c("GBP1", "MAP2K1"),
+          !Assay %in% proteins_low$Assay,
+         !DAid %in% c("DA12362", "DA12363")) |> 
+  select(DAid, Assay, NPX) |>
+  do_pca(wide = F)
+
+pca_data$pca_res |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest, by = "DAid") |> 
+  ggplot(aes(PC1, PC2, color = Cohort)) +
+  geom_point() +
+  theme_hpa() +
+
+pca_data$pca_res |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest, by = "DAid") |> 
+  ggplot(aes(PC1, PC2, color = Class)) +
+  geom_point() +
+  scale_color_manual(values = pal_class_2) +
+  theme_hpa() 
+
+ggsave(savepath("pca.png"), h = 6, w = 12)
+
+
+missing_per_sample <- 
+  data_ht_lod |> 
+  filter(SampleType == "SAMPLE") |> 
+  mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No")) |> 
+  group_by(DAid) |> 
+  count(above_LOD) |> 
+  filter(above_LOD == "Yes") |> 
+  arrange(n)
+
+
+missing_per_sample |> 
+  left_join(manifest) |> 
+  filter(!Cohort %in% c("BDG2", "CTRL")) |> 
+  ggplot(aes(Cohort, n)) +
+  geom_quasirandom(aes(color = Class)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+  scale_color_manual(values = pal_class_2) +
+  theme_hpa() +
+  ggtitle("Number of detected proteins per sample")
+
+ggsave(savepath("missing_per_sample.png"), h = 7, w = 10)
+
+
+missing_per_sample |> 
+  left_join(manifest) |> 
+  filter(!Cohort %in% c("BDG2", "CTRL")) |> 
+  mutate(outliers_umap = ifelse(DAid %in% outliers_umap$Sample, "Yes", "No")) |>
+  ggplot(aes(Cohort, n)) +
+  geom_quasirandom(aes(color = outliers_umap)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+  scale_color_manual(values = c("grey", "red")) +
+  theme_hpa() +
+  ggtitle("Number of detected proteins per sample")
+
+
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest, by = "DAid") |> 
+    mutate(outliers_umap = ifelse(DAid %in% outliers_umap$Sample, "Yes", "No")) |>
+
+  ggplot(aes(UMAP1, UMAP2, color = outliers_umap)) +
+  geom_point() +
+    scale_color_manual(values = c("grey", "red")) +
+
+  theme_hpa()
+
+
+ggsave(savepath("umap_per_sample_umap.png"), h = 7, w = 7)
+
+pca_data$pca_res |> 
+  rename(DAid = Sample) |> 
+  left_join(full_matched_meta, by = "DAid") |> 
+  left_join(missing_per_sample, by = "DAid") |>
+  ggplot(aes(PC1, PC2, color = n)) +
+  geom_point() +
+  scale_color_viridis_c() +
+#  scale_color_manual(values = S) +
+  theme_hpa()  +
+  ggtitle("PCA - number of proteins above LOD")
+
+ggsave(savepath("pca_per_sample.png"), h = 7, w = 7)
+
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(full_matched_meta, by = "DAid") |> 
+  left_join(missing_per_sample, by = "DAid") |>
+  ggplot(aes(UMAP1, UMAP2, color = n)) +
+  geom_point() +
+  scale_color_viridis_c() +
+#  scale_color_manual(values = S) +
+  theme_hpa()  +
+  ggtitle("UMAP - number of proteins above LOD")
+
+ggsave(savepath("umap_per_sample.png"), h = 7, w = 7)
+
+umap_data_all |> 
+  rename(DAid = Sample) |> 
+  left_join(full_matched_meta, by = "DAid") |> 
+  left_join(missing_per_sample, by = "DAid") |>
+  ggplot(aes(UMAP1, UMAP2, color = n)) +
+  geom_point() +
+  scale_color_viridis_c() +
+#  scale_color_manual(values = S) +
+  theme_hpa()  +
+  ggtitle("UMAP - number of proteins above LOD")
+
+
+
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest, by = "DAid") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Disease)) +
+  geom_point() +
+  theme_hpa()
+
+manifest |> 
+  filter(Cohort == "FTD1") |> 
+  pull(`Extra data`)
+  View()
+
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Plasma_type)) +
+  geom_point() +
+  theme_hpa() +
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Sampling)) +
+  geom_point() +
+  theme_hpa()
+
+ggsave(savepath("disease_umap_subset_heparin.png"), h = 6, w = 12)
+
+
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Matched = str_extract(`Extra data`, "matched edta heparin: .*"),
+
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Plasma_type)) +
+  geom_point() +
+  theme_hpa() +
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Sampling)) +
+  geom_point() +
+  theme_hpa()
+
+
+
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Matched = str_extract(`Extra data`, "matched edta heparin: .*"),
+
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  filter(!is.na(Matched)) |> 
+  ggplot(aes(UMAP1, UMAP2, color = Matched)) +
+  geom_point() +
+  theme_hpa() 
+
+
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Matched = str_extract(`Extra data`, "matched edta heparin: .*"),
+                     Subject = str_extract(`Extra data`, "Subject ID: .*"),
+
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  filter(Matched == "matched edta heparin: Yes") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Plasma_type, group = Subject)) +
+  geom_line(color = "grey80") +
+  geom_point() +
+  theme_hpa() +
+  ggtitle("Matched samples")
+
+
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Matched = str_extract(`Extra data`, "matched edta heparin: .*"),
+                     
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  mutate(Matched = ifelse(is.na(Matched), "matched edta heparin: No", Matched)) |> 
+  ggplot(aes(UMAP1, UMAP2, color = Matched)) +
+  geom_point(alpha = 0.8) +
+  scale_color_manual(values = c("grey80", "darkred")) +
+  theme_hpa() 
+
+```
+# UMAP
+
+```{r}
+proteins_low <- 
+  data_ht_lod |> 
+  mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No")) |> 
+  filter(!DAid %in% c("DA17770", "DA16919")) |> 
+  left_join(manifest, by = "DAid") |>
+  group_by(Assay) |> 
+  count(above_LOD) |> 
+  filter(above_LOD == "Yes",
+         n < 500) 
+  
+data |> 
+  filter(SampleType == "SAMPLE",
+         AssayType == "assay") |> 
+  group_by(DAid, Assay) |> 
+  count() |> 
+  arrange(-n)
+
+data |> 
+  filter(SampleType == "SAMPLE",
+         AssayType == "assay") |> 
+  count(DAid) |> arrange(-n)
+  filter(!Assay %in% c("GBP1", "MAP2K1"),
+         !DAid %in% c("DA12362", "DA12363")) |> 
+  select(DAid, Assay, NPX) |> 
+  count(DAid) |> 
+  arrange(-n)
+
+umap_data_all <- 
+  data |> 
+  filter(SampleType == "SAMPLE",
+         AssayType == "assay") |> 
+  filter(!DAid %in% c("DA12362", "DA12363")) |> 
+  select(DAid, Assay, NPX) |>
+  do_umap(wide = F)
+
+umap_data_all |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest, by = "DAid") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Cohort)) +
+  geom_point() +
+  theme_hpa() +
+
+umap_data_all |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest, by = "DAid") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Class)) +
+  geom_point() +
+  scale_color_manual(values = pal_class_2) +
+  theme_hpa() 
+
+#ggsave(savepath("disease_umap.png"), h = 6, w = 12)
+#ggsave(savepath("disease_umap_subset.png"), h = 6, w = 12)
+
+outliers_umap <- 
+  umap_data_all |> 
+  filter(UMAP2 < -5)
+
+umap_data_all |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest, by = "DAid") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Disease)) +
+  geom_point() +
+  theme_hpa()
+
+manifest |> 
+  filter(Cohort == "FTD1") |> 
+  pull(`Extra data`)
+  View()
+
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Plasma_type)) +
+  geom_point() +
+  theme_hpa() +
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Sampling)) +
+  geom_point() +
+  theme_hpa()
+
+ggsave(savepath("disease_umap_subset_heparin.png"), h = 6, w = 12)
+
+
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Matched = str_extract(`Extra data`, "matched edta heparin: .*"),
+
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Plasma_type)) +
+  geom_point() +
+  theme_hpa() +
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Sampling)) +
+  geom_point() +
+  theme_hpa()
+
+
+
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Matched = str_extract(`Extra data`, "matched edta heparin: .*"),
+
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  filter(!is.na(Matched)) |> 
+  ggplot(aes(UMAP1, UMAP2, color = Matched)) +
+  geom_point() +
+  theme_hpa() 
+
+
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Matched = str_extract(`Extra data`, "matched edta heparin: .*"),
+                     Subject = str_extract(`Extra data`, "Subject ID: .*"),
+
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  filter(Matched == "matched edta heparin: Yes") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Plasma_type, group = Subject)) +
+  geom_line(color = "grey80") +
+  geom_point() +
+  theme_hpa() +
+  ggtitle("Matched samples")
+
+
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Matched = str_extract(`Extra data`, "matched edta heparin: .*"),
+                     
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  mutate(Matched = ifelse(is.na(Matched), "matched edta heparin: No", Matched)) |> 
+  ggplot(aes(UMAP1, UMAP2, color = Matched)) +
+  geom_point(alpha = 0.8) +
+  scale_color_manual(values = c("grey80", "darkred")) +
+  theme_hpa() 
+
+umap_data |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Matched = str_extract(`Extra data`, "matched edta heparin: .*"),
+                     
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  mutate(Matched = ifelse(is.na(Matched), "matched edta heparin: No", Matched)) |> 
+ # filter(Plasma_type == "plasma_type: Heparin") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Plasma_type)) +
+  geom_point(alpha = 0.8) +
+  scale_color_manual(values = c("grey80", "darkred")) +
+  theme_hpa() 
+ggsave(savepath("heparin.png"))
+```
+
+
+# Look at CV!
+
+```{r}
+assays_cv <- 
+  data_ht |> 
+  filter(!is.na(IntraCV)) |> 
+  count(Assay) 
+
+lod_perc <- 
+  data_ht_lod |>
+  filter(SampleType == "SAMPLE",
+         AssayType == "assay") |> 
+  mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No")) |> 
+  filter(above_LOD == "Yes") |> 
+  count(Assay) |> 
+  mutate(perc = n / 2064)
+
+
+assays_cv |> 
+  left_join(lod_perc, by = "Assay") |> 
+  arrange(-perc) |> 
+  ggplot(aes(perc)) +
+  geom_histogram() +
+  theme_hpa()
+
+ggsave(savepath("cv_assays.png"), h = 5, w = 5)
+
+assays_cv_inter <- 
+  data_ht |> 
+  filter(!is.na(InterCV)) |> 
+  count(Assay) 
+
+
+data_ht_lod |> 
+  filter(Assay %in% assays_cv$Assay) |> 
+  ggplot(aes(Block, IntraCV, color  = Assay)) +
+  geom_quasirandom(show.legend = F, size = 0.5) +
+  theme_hpa() + 
+  ggtitle("Intra CV")
+
+ggsave(savepath("intra_cv.png", h = 5, w = 5))
+
+# facet per plate
+
+data_ht_lod |> 
+  filter(Assay %in% assays_cv$Assay) |> 
+  ggplot(aes(Block, InterCV, color = Assay)) +
+  geom_quasirandom(show.legend = F, size = 0.5) +
+  theme_hpa() + 
+  ggtitle("Inter CV")
+
+ggsave(savepath("inter_cv.png"), h = 5, w = 5)
+
+data_ht_lod |> 
+  filter(Assay %in% assays_cv$Assay) |> 
+  ggplot(aes(Block, InterCV, color = Assay)) +
+  geom_quasirandom(show.legend = F, size = 0.5) +
+  facet_wrap(~Plate) +
+  theme_hpa() + 
+  ggtitle("Inter CV")
+
+ggsave(savepath("inter_cv_facet.png"), h = 8, w = 12)
+
+data_ht_lod |> 
+  filter(Assay %in% assays_cv$Assay) |> 
+  ggplot(aes(Block, IntraCV, color = Assay)) +
+  geom_quasirandom(show.legend = F, size = 0.5) +
+  facet_wrap(~Plate) +
+  theme_hpa() + 
+  ggtitle("Intra CV")
+
+ggsave(savepath("intra_cv_facet.png"), h = 8, w = 12)
+
+#291 assays with CV
+# check if below LOD?
+
+data_ht_lod |> 
+  filter(Assay %in% assays_cv$Assay) |> 
+  distinct(Assay, Block, InterCV) |> 
+  ggplot(aes(Block, InterCV)) +
+  geom_quasirandom(show.legend = F, alpha = 0.5) +
+  geom_text_repel(aes(label = Assay)) +
+  theme_hpa() + 
+  ggtitle("Inter CV")
+
+ggsave(savepath("inter_cv_anotated.png"), h = 5, w = 5)
+
+data_ht_lod |> 
+  filter(Assay %in% assays_cv$Assay) |> 
+  distinct(Assay, Block, IntraCV) |> 
+  ggplot(aes(Block, IntraCV)) +
+  geom_quasirandom(show.legend = F, alpha = 0.5) +
+  geom_text_repel(aes(label = Assay)) +
+  theme_hpa() + 
+  ggtitle("Intra CV")
+
+ggsave(savepath("intra_cv_anotated.png"), h = 5, w = 5)
+```
+
+## Examples across diseases 
+
+```{r}
+protein <- "KLHL40"
+
+data_ht_lod |> 
+  filter(Assay == protein,
+         SampleType == "SAMPLE") |> 
+  left_join(manifest, by = "DAid") |>
+  mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No")) |>
+  ggplot(aes(Disease, NPX, color = above_LOD)) +
+  geom_quasirandom() +
+  scale_color_manual(values = c("Yes" = "darkseagreen", "No" = "maroon")) +
+  theme_hpa(angled = T) +
+  ggtitle(protein) +
+  xlab("") +
+  data_ht_lod |> 
+  filter(Assay == protein,
+         DAid %in% c("DA12362", "DA12363")) |> 
+  left_join(manifest, by = "DAid") |>
+  mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No")) |>
+  ggplot(aes(DAid, NPX, color = above_LOD)) +
+  geom_quasirandom() +
+  theme_hpa(angled = T) +
+  scale_color_manual(values = c("Yes" = "darkseagreen", "No" = "maroon")) +
+  xlab("") +
+  plot_layout(widths = c(4,0.5))
+
+ggsave(savepath("KLHL40_NPX.png"), h = 6, w = 10)
+
+manifest |> 
+  filter(DAid %in% data_ht_lod$DAid) |> 
+  filter(is.na(Disease)) |> View()
+
+
+data_ht_lod |> 
+  filter(Assay == protein,
+         SampleType == "SAMPLE") |> 
+  left_join(manifest, by = "DAid") |>
+  mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No")) |>
+  ggplot(aes(Disease, NPX, color = Plate)) +
+  geom_quasirandom() +
+ # scale_color_manual(values = c("Yes" = "darkseagreen", "No" = "maroon")) +
+  theme_hpa(angled = T) +
+  ggtitle(protein) +
+  xlab("") +
+  data_ht_lod |> 
+  filter(Assay == protein,
+         DAid %in% c("DA12362", "DA12363")) |> 
+  left_join(manifest, by = "DAid") |>
+  mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No")) |>
+  ggplot(aes(DAid, NPX, color = Plate)) +
+  geom_quasirandom() +
+  theme_hpa(angled = T) +
+  #scale_color_manual(values = c("Yes" = "darkseagreen", "No" = "maroon")) +
+  xlab("") +
+  plot_layout(widths = c(4,0.5))
+
+ggsave(savepath("KLHL40_NPX_plate.png"), h = 8, w = 12)
+```
+
+
+# Heparin samples
+
+```{r}
+
+proteins_low <- 
+  data_ht_lod |> 
+  mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No")) |> 
+  filter(!DAid %in% c("DA17770", "DA16919")) |> 
+  left_join(manifest, by = "DAid") |>
+  group_by(Assay, Cohort) |> 
+  count(above_LOD) |> 
+  filter(above_LOD == "Yes",
+         Cohort == "FTD1",
+         n < 100) 
+  
+
+ftd1_samples <- 
+  manifest |> 
+  filter(Cohort == "FTD1")
+
+
+umap_data_ftd <- 
+  data |> 
+  filter(DAid %in%  ftd1_samples$DAid,
+         SampleType == "SAMPLE",
+         AssayType == "assay") |> 
+   filter(!Assay %in% c("GBP1", "MAP2K1"),
+         # !Assay %in% proteins_low$Assay,
+         !DAid %in% c("DA12362", "DA12363")) |> 
+  select(DAid, Assay, NPX) |>
+  do_umap(wide = F)
+
+umap_data_ftd |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Plasma_type)) +
+  geom_point() +
+  theme_hpa() 
+ggsave(savepath("heparin_umap_plasma.png"), h = 6, w = 8)
+ggsave(savepath("heparin_umap_plasma_all.png"), h = 6, w = 8)
+
+umap_data_ftd |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Sampling)) +
+  geom_point() +
+  theme_hpa() 
+ggsave(savepath("heparin_umap_center.png"), h = 6, w = 8)
+
+umap_data_ftd |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest |> 
+              mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+                     Sampling = str_extract(`Extra data`, "sampling: .*")), by = "DAid") |> 
+  ggplot(aes(UMAP1, UMAP2, color = Disease)) +
+  geom_point() +
+  theme_hpa()
+ggsave(savepath("heparin_umap_disease.png"), h = 6, w = 8)
+
+
+```
+
+## Differential expression matched
+
+```{r}
+
+matched_meta <- 
+  manifest |> 
+  mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+         Matched = str_extract(`Extra data`, "matched edta heparin: .*"),
+         Subject = str_extract(`Extra data`, "Subject ID: .*"),
+         Sampling = str_extract(`Extra data`, "sampling: .*")) |>  
+  filter(Matched == "matched edta heparin: Yes") |> 
+  select(DAid, Cohort, Age, Sex, BMI, Plasma_type, Sampling, Subject)
+
+matched_meta |> 
+  count(Sampling) |> 
+  ggplot(aes(Sampling, n, fill = Sampling)) +
+  geom_col(show.legend = F) +
+  geom_text(aes(label = n), vjust = -0.5) +
+  scale_fill_manual(values = c("#F9A266",  "#6BA592")) +
+  theme_hpa() +
+  ggtitle("Matched samples") +
+  xlab("") +
+
+matched_meta |> 
+  count(Plasma_type) |> 
+  ggplot(aes(Plasma_type, n, fill = Plasma_type)) +
+  geom_col(show.legend = F) +
+  geom_text(aes(label = n), vjust = -0.5) +
+ # scale_fill_manual(values = c("#F9A266",  "#6BA592")) +
+  theme_hpa() +
+  ggtitle("Matched samples") +
+  xlab("")
+
+ggsave(savepath("matched_samples.png"), h = 5, w = 9)
+
+matched_data <- 
+  data |> 
+  filter(AssayType == "assay",
+         SampleType == "SAMPLE") |>
+  filter(DAid %in% matched_meta$DAid) |> 
+  select(DAid, Assay, NPX) |>
+  pivot_wider(names_from = Assay, values_from = NPX) 
+
+source("scripts/functions/functions_analyses.R")
+matched_de <- 
+  do_limma_disease(data_wide = matched_data, 
+                   metadata = matched_meta |> rename(Disease = "Plasma_type"),
+                   disease = "plasma_type: EDTA",
+                   correct = F,
+                   cutoff = 0.5) 
+
+plot_volcano(matched_de)
+
+ggsave(savepath("volcano_matched.png"), h = 6, w = 6)
+
+
+top <- 
+  matched_de |> 
+  filter(sig == "significant up") |> 
+  head(5) |> 
+  bind_rows(matched_de |> 
+  filter(sig == "significant down") |> 
+  head(5))
+
+data |> 
+  filter(AssayType == "assay",
+         SampleType == "SAMPLE") |>
+  filter(DAid %in% matched_meta$DAid,
+         Assay %in% top$Assay) |>
+  left_join(matched_meta) |> 
+  mutate(Assay = factor(Assay, levels = top$Assay)) |> 
+  ggplot(aes(Plasma_type, NPX, color = Plasma_type, fill = Plasma_type, group = Subject)) +
+  geom_line(color = "grey", aes(Plasma_type, NPX, group = Subject), inherit.aes = F) +
+  geom_quasirandom() +
+  #geom_boxplot(color = "grey20", alpha = 0.6, outlier.colour = NA) +
+  facet_wrap(~Assay, nrow = 2, scales = "free_y") +
+  theme_hpa(axis_x = F)
+
+ggsave(savepath("edta_plasma_assays.png"), h = 6, w = 10)
+
+
+full_matched_meta <- 
+  manifest |> 
+  mutate(Plasma_type = str_extract(`Extra data`, "plasma_type: \\w+"),
+         Matched = str_extract(`Extra data`, "matched edta heparin: .*"),
+         Subject = str_extract(`Extra data`, "Subject ID: .*"),
+         Sampling = str_extract(`Extra data`, "sampling: .*")) 
+
+data |> 
+  filter(AssayType == "assay",
+         SampleType == "SAMPLE") |>
+  filter(#DAid %in% matched_meta$DAid,
+    Assay %in% top$Assay) |>
+  left_join(full_matched_meta |> 
+              mutate(Plasma_type_x = ifelse(is.na(Plasma_type), "plasma_type: EDTA (others)", Plasma_type),
+                     Plasma_type = ifelse(is.na(Plasma_type), "plasma_type: EDTA", Plasma_type))) |> 
+  mutate(Assay = factor(Assay, levels = top$Assay)) |>
+  ggplot(aes(Plasma_type_x, NPX, color = Cohort, fill = Plasma_type)) +
+  geom_quasirandom() +
+  geom_boxplot(color = "grey20", alpha = 0.6, outlier.colour = NA) +
+  facet_wrap(~Assay, nrow = 2, scales = "free_y") +
+  theme_hpa(angled = T) +
+  xlab("")
+  
+ggsave(savepath("edta_plasma_assays_full.png"), h = 8, w = 12)
+ggsave(savepath("edta_plasma_assays_full_cohort.png"), h = 8, w = 12)
+```
+
