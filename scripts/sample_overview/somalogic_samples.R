@@ -5,9 +5,11 @@ source("scripts/functions/themes_palettes.R")
 library(tidyverse)
 
 data_soma <- import_df("data/Disease_Atlas_Somascan_selection.xlsx")
+data_soma <- import_df("data/SomaScan selection.xlsx")
 
 dat <- 
   data_soma |> 
+  rename(Contact =  `Cohort custodian`) |> 
   mutate(Disease = case_when(Disease == "Lung cancer" & Contact == "Adil Mardinoglu" ~ "Lung cancer (Adil)",
                              Disease == "Lung cancer" & Contact == "Fredrik Pontén" ~ "Lung cancer (UCAN)",
                              Disease == "Breast cancer" & Contact == "Adil Mardinoglu" ~ "Breast cancer (Adil)",

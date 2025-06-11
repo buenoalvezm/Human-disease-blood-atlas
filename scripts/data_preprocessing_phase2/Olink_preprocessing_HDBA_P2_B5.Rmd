@@ -1,6 +1,6 @@
 ---
 title: "Human Disease Blood Atlas Olink Data Quality Control"
-subtitle: "Phase 2 (Olink HT) - Batch 4"
+subtitle: "Phase 2 (Olink HT) - Batch 5"
 author: "María Bueno Álvez"
 date: last-modified
 date-format: "YYYY-MM-DD"
@@ -45,9 +45,11 @@ source("../scripts/functions/functions_utility.R")
 source("../scripts/functions/functions_visualization.R")
 source("../scripts/functions/themes_palettes.R")
 
+list.files("../data")
+
 # Load Olink NPX data and LIMS manifest
-data_ht <- read_NPX("../data/VL-3530B4_NPX_2025-03-25.parquet")
-manifest <- import_df("../data/samples_2025-04-07.xlsx")
+data_ht <- read_NPX("../data/VL-3530-B5/VL-3530B5_NPX_2025-05-08.parquet")
+manifest <- import_df("../data/samples_2025-05-12.xlsx")
 ```
 
 
@@ -100,7 +102,7 @@ n_samples <-
 data_ht_lod <- olink_lod(data = data_hdba, lod_method = "NCLOD")
 
 ## Save raw data - including LOD calculation
-write_tsv(data_ht_lod, file = "../data/final_data/data_phase2_batch4_raw_20240425.tsv")
+write_tsv(data_ht_lod, file = "../data/final_data/data_phase2_batch5_raw_20250512.tsv")
 ```
 
 
@@ -126,7 +128,7 @@ data_hdba |>
   theme_hpa(angled = T) +
   ylab("Number of samples")
 
-#ggsave(savepath("da_phase2_cohorts.png"), h = 6, w = 6)
+ggsave(savepath("da_phase2_batch5_cohorts.png"), h = 6, w = 6)
 ```
 
 **Figure 2**: Sample distribution across plates.
@@ -149,7 +151,7 @@ data_hdba |>
   theme_hpa(angled = T) +
   ylab("Number of samples")
 
-#ggsave(savepath("da_phase2_plates.png"), h = 6, w = 8)
+ggsave(savepath("da_phase2_batch5_plates.png"), h = 6, w = 8)
 ```
 
 
@@ -324,7 +326,7 @@ data_step_1 |>
   ggtitle("Samples with QC warnings") 
 
 
-#ggsave(savepath("samples_qc.png"), h = 4, w = 10)
+ggsave(savepath("samples_qc_batch5.png"), h = 4, w = 10)
 
 data_step_1 |> 
   group_by(DAid) |> 
@@ -341,6 +343,8 @@ data_step_1 |>
   theme(axis.text.x = element_text(size = 5),
         axis.ticks.x = element_blank()) +
   ggtitle("Samples with QC warnings") 
+
+ggsave(savepath("samples_qc_2_batch5.png"), h = 4, w = 10)
 ```
 
 **Figure 10**: Beeswarm plot showing the number of proteins passing QC for each sample.
@@ -361,7 +365,7 @@ data_step_1 |>
   theme_hpa(angled = T) +
   ggtitle("Number of proteins that pass QC per sample")
 
-#ggsave(savepath("samples_pass.png"), h = 8, w = 8)
+ggsave(savepath("samples_pass_batch5.png"), h = 8, w = 8)
 ```
 
 
@@ -413,7 +417,7 @@ data_step_2 |>
   theme_hpa(angle = T) +
   xlab("Assay")
 
-#ggsave(savepath("assay_qc.png"), h = 5, w = 10)
+ggsave(savepath("assay_qc_batch5.png"), h = 5, w = 10)
 
 assays_high_warnings <- 
   data_step_2 |> 
@@ -439,6 +443,43 @@ data_step_3 <-
   select(-AssayQC)
 ```
 
+# Protein detectability
+
+```{r}
+
+sample_detected_proteins <- 
+  data_step_3 |> 
+  filter(above_LOD == "Yes") |> 
+  count(DAid)
+
+sample_detected_proteins |> 
+  left_join(manifest, by = "DAid") |> 
+  ggplot(aes(Cohort, n, fill = Cohort, color = Cohort)) +
+  geom_quasirandom() +
+  geom_boxplot(outlier.color = NA, alpha = 0.5, color = "black") +
+  scale_fill_manual(values = brewer.pal(n = 11, name = "Set3")) +  
+  scale_color_manual(values = brewer.pal(n = 11, name = "Set3")) +  
+  theme_hpa(angled = T)
+
+disease_order <- 
+  manifest |> 
+  mutate(Disease = ifelse(Disease == "Healthy", paste(Disease, Cohort, sep = " - "), Disease)) |> 
+  filter(DAid %in% data_step_3$DAid) |> 
+  distinct(Disease, Cohort, Class) |> 
+  arrange(desc(Cohort))
+
+sample_detected_proteins |> 
+  left_join(manifest, by = "DAid") |> 
+  mutate(Disease = ifelse(Disease == "Healthy", paste(Disease, Cohort, sep = " - "), Disease),
+         Disease = factor(Disease, levels = disease_order$Disease)) |> 
+  ggplot(aes(Disease, n, fill = Cohort, color = Cohort)) +
+  geom_quasirandom() +
+  geom_boxplot(outlier.color = NA, alpha = 0.5, color = "black") +
+  scale_fill_manual(values = brewer.pal(n = 11, name = "Set3")) +  
+  scale_color_manual(values = brewer.pal(n = 11, name = "Set3")) +  
+  theme_hpa(angled = T)
+
+```
 
 # Step 4: Outlier exploration
 
@@ -490,7 +531,7 @@ pca_all_proteins$pca_res |>
   scale_color_manual(values = pal_class_2) +
   theme_hpa() 
 
-#ggsave(savepath("pca.png"), h = 8, w = 8)
+ggsave(savepath("pca_batch5.png"), h = 8, w = 8)
 
 # ids <- 
 #   pca_all_proteins$pca_res  |> 
@@ -590,11 +631,40 @@ umap_all_proteins |>
   rename(DAid = Sample) |>
   left_join(manifest, by = "DAid") |>
   mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
-  ggplot(aes(UMAP1, UMAP2, color = Class)) +
+  ggplot(aes(UMAP1, UMAP2, color = Disease)) +
   geom_point(alpha = 0.7, size = 0.8) +
   scale_color_manual(values = pal_class_2) +
   theme_hpa() +
   ggtitle("All proteins")
+
+
+umap_all_proteins |>
+  rename(DAid = Sample) |>
+  left_join(manifest, by = "DAid") |>
+  left_join(sample_detected_proteins, by = "DAid") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggplot(aes(UMAP1, UMAP2, color = Disease)) +
+  geom_point(alpha = 0.7, size = 0.8) +
+  #scale_color_manual(values = pal_class_2) +
+ # scale_color_viridis_c() +
+  theme_hpa() +
+  ggtitle("All proteins")
+
+
+
+umap_all_proteins |>
+  rename(DAid = Sample) |>
+  left_join(manifest, by = "DAid") |>
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggplot(aes(UMAP1, UMAP2, color = Disease)) +
+  geom_point(alpha = 0.7, size = 0.8) +
+  #scale_color_manual(values = pal_class_2) +
+  theme_hpa() +
+  ggtitle("All proteins")
+
+
+# One colored at a time
+
 
 umap_outliers <-
   umap_all_proteins |> 
@@ -774,10 +844,14 @@ umap_final |>
 After completing the quality control and data curation steps, we **save the cleaned and processed dataset for sharing with collaborators and for further downstream analysis**. This final dataset is ready for use in subsequent phases of the project.
 
 ```{r}
+
+data_step_4 <- 
+  data_step_3
+
 curated_data <- 
   data_step_4 |> 
   select(-Count,	-ExtNPX, -PCNormalizedNPX) # Remove unnecessary columns
 
-write_tsv(curated_data, file = "../data/final_data/data_phase2_batch4_curated_20250425.tsv") 
+write_tsv(curated_data, file = "../data/final_data/data_phase2_batch5_curated_20250512.tsv") 
 ```
 

@@ -7,7 +7,9 @@ library(ggsci)
 source("scripts/functions/functions_utility.R")
 source("scripts/functions/functions_visualization.R")
 
-data_b4 <- read_NPX("data/VL 3530B4 NPX Dec 5 2024.parquet")
+#data_b4 <- read_NPX("data/VL 3530B4 NPX Dec 5 2024.parquet")
+data_b4 <- read_NPX("data/VL-3530B4_NPX_2025-03-25.parquet")
+
 new_manifest <- read_excel("data/samples_2024-12-17.xlsx")
 
 daid_patients_2_3 <- c("DA12362", "DA12363")
@@ -85,6 +87,8 @@ disease_data <-
   select(DAid, Assay, NPX) |> 
   pivot_wider(names_from = "Assay", values_from = "NPX")
 
+source("scripts/functions/functions_analyses.R")
+source("scripts/functions/themes_palettes.R")
 library(limma)
 de_pancreatic <- 
   do_limma_disease(data_wide = disease_data, 
@@ -96,9 +100,9 @@ de_pancreatic <-
 plot_volcano(de_pancreatic) +
   ggtitle("HT Phase 2 - Pancreatic cancer against other diseases")
 
-ggsave(savepath("pancreatic_ht.png"))
+ggsave(savepath("pancreatic_ht_complete.png"), h = 6, w = 6)
 
-de_pancreatic |> 
+de_pancreatic |> count(sig)
   filter(sig == "significant down") 
 
 
@@ -132,4 +136,5 @@ de_pancreatic_p1 |>
   geom_vline(xintercept = 0, linetype = 2) +
   theme_hpa()
  
-ggsave(savepath("pancreatic_de_p1_p2.png"))
+ggsave(savepath("pancreatic_de_p1_p2_complete.png"), h =5, w= 8)
+s

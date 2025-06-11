@@ -1,0 +1,1016 @@
+---
+title: "Human Disease Blood Atlas Olink Data Quality Control"
+subtitle: "Phase 2 (Olink HT) - Batch 2"
+author: "María Bueno Álvez"
+date: last-modified
+date-format: "YYYY-MM-DD"
+format:
+  html:
+    self-contained: true
+    theme: flatly
+    title-block-banner: true
+    smooth-scroll: true
+    toc: true
+    toc-depth: 4
+    toc-location: right
+    number-sections: true
+    number-depth: 4
+    code-fold: true
+    code-tools: true
+    code-copy: true
+    code-overflow: wrap
+    df-print: kable
+    standalone: false
+    fig-align: left
+    figure:
+      caption: "Figure {number}: {label}"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, include=FALSE}
+# Load packages
+library(tidyverse) 
+library(ggplotify)
+library(patchwork)
+library(pheatmap)
+library(ggbeeswarm)
+library(ggrepel)
+library(GGally)
+library(arrow)
+library(OlinkAnalyze)
+
+# Read internal functions
+source("../scripts/functions/functions_utility.R")
+source("../scripts/functions/functions_visualization.R")
+source("../scripts/functions/themes_palettes.R")
+
+# Load Olink NPX data and LIMS manifest
+data_ht <-read_NPX("../data/VL-3530-B2/VL-3530_B2_NPX_2025-05-08.parquet")
+manifest <- import_df("../data/samples_2025-05-12.xlsx")
+```
+
+```{r}
+ids <- 
+  data_ht |> 
+  distinct(SampleID) |> 
+  separate(SampleID, into = c("DAid", "Batch", "Plate"), sep = "-", remove = F) 
+
+manifest |> 
+  filter(DAid %in% ids$DAid) |> 
+  count(`PI - sample owner`, Cohort) |> 
+  ggplot(aes(Cohort, n, fill = Cohort)) +
+  geom_col() +
+  scale_fill_manual(values = brewer.pal(n = 5, name = "Set3")) +  
+  theme_hpa(angled = T)
+
+ggsave(savepath("da_phase2_batch2_plates.png"), h = 6, w = 8)
+```
+
+
+```{r, include=FALSE}
+# Define control sample type, control assay types, replicate samples, replicate assays
+control_sample_types <- c("SAMPLE_CONTROL", "PLATE_CONTROL", "NEGATIVE_CONTROL")
+control_assay_types <- c("ext_ctrl", "inc_ctrl", "amp_ctrl")
+
+n_samples_run <- 
+  data_ht |> 
+  filter(!SampleType %in% control_sample_types) |>
+  distinct(SampleID) |> 
+  nrow()
+
+control_samples <- 
+  manifest |> 
+  filter(Cohort == "CTRL") |> 
+  pull(DAid)
+
+# Extract Olink assay metadata 
+olink_meta <- 
+  data_ht |> 
+  filter(!AssayType %in% control_assay_types) |>
+  distinct(Assay, OlinkID, UniProt, AssayType, Block)
+
+n_proteins <- 
+  olink_meta$Assay |>
+  unique() |> 
+  length()
+
+# Map SampleIDs to DA identifiers 
+id_mapping <- 
+  data_ht |> 
+  filter(SampleType == "SAMPLE") |> 
+  distinct(SampleID) |> 
+  separate(SampleID, into = c("DAid", "Batch", "Plate"), sep = "-", remove = F) 
+
+data_hdba <- 
+  data_ht |>
+  left_join(id_mapping, by = "SampleID") |>
+  relocate(DAid)
+
+n_samples <- 
+  data_hdba |> 
+  filter(!SampleType %in% control_sample_types) |> 
+  distinct(DAid) |> 
+  nrow()
+
+# Calculate Limit of Detection (LOD) using negative controls
+data_ht_lod <- olink_lod(data = data_hdba, lod_method = "NCLOD")
+
+## Save raw data - including LOD calculation
+write_tsv(data_ht_lod, file = "../data/final_data/data_phase2_batch2_raw_20250512.tsv")
+```
+
+
+# Data overview
+
+This section provides an **overview of the Olink dataset**, including the total number of samples and proteins measured. 
+
+In the delivered Olink dataset, there are currently **`r n_samples` samples**, and **`r nrow(olink_meta)` proteins** measured in each sample.
+
+**Figure 1**: Number of samples per cohort.
+
+```{r}
+data_hdba |> 
+  filter(!SampleType %in% control_sample_types) |> 
+  distinct(DAid) |> 
+  left_join(manifest, by = "DAid") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  count(Cohort) |> 
+  ggplot(aes(Cohort, n, fill = Cohort)) +
+  geom_col() +
+    scale_fill_manual(values = brewer.pal(n = 11, name = "Set3")) +  
+  geom_text(aes(label = n), vjust = -0.5) +
+  theme_hpa(angled = T) +
+  ylab("Number of samples")
+
+ggsave(savepath("da_phase2_batch2_cohorts.png"), h = 6, w = 6)
+
+
+
+
+data_hdba |> 
+  filter(!SampleType %in% control_sample_types) |> 
+  distinct(DAid) |> 
+  left_join(manifest, by = "DAid") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  count(Cohort) |> 
+  ggplot(aes(Cohort, n, fill = Cohort)) +
+  geom_col() +
+    scale_fill_manual(values = brewer.pal(n = 11, name = "Set3")) +  
+  geom_text(aes(label = n), vjust = -0.5) +
+  theme_hpa(angled = T) +
+  ylab("Number of samples")
+
+ggsave(savepath("da_phase2_batch2_cohorts.png"), h = 6, w = 6)
+```
+
+**Figure 2**: Sample distribution across plates.
+
+```{r}
+data_hdba |> 
+  mutate(Plate = gsub("P", "", Plate),
+         Plate = as.numeric(Plate),
+         Plate = as.factor(Plate)) |>
+  distinct(DAid, SampleID, Plate, SampleType) |> 
+  filter(!is.na(Plate)) |> 
+  left_join(manifest, by = "DAid") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_"),
+         Cohort = ifelse(SampleType %in% control_sample_types, "CONTROLS", Cohort))  |> 
+  group_by(Plate, Cohort) |> 
+  count() |> 
+  ggplot(aes(Plate, n, fill = Cohort)) +
+  geom_col() +
+  scale_fill_manual(values = brewer.pal(n = 11, name = "Set3")) +  
+  theme_hpa(angled = T) +
+  ylab("Number of samples")
+
+ggsave(savepath("da_phase2_batch2_plates.png"), h = 6, w = 8)
+```
+
+
+# Step 1: Exploration of control samples and control assays
+
+This section identifies and **analyzes control samples to ensure data quality**. Specifically, we explore correlations between technical replicates for selected patients (patient 2 and patient 3) across multiple plates.
+
+## Plate-to-plate correlation for patient 2 & 3
+
+We calculate **Spearman correlations for measurements of Patient 2 and Patient 3 across plates**. These analyses help assess technical reproducibility.
+
+
+
+**Figure 3**: Correlation heatmap for Patient 2 across plates.
+
+```{r}
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12362") |> 
+  select(Plate, OlinkID, PCNormalizedNPX) |> 
+  pivot_wider(names_from = OlinkID, values_from = PCNormalizedNPX) |> 
+  column_to_rownames("Plate") |> 
+  t() |> 
+  cor(method = "spearman")|> 
+  pheatmap()|> 
+  as.ggplot()
+
+#ggsave(savepath("p2_heatmap.png"), h = 8, w = 8)
+```
+
+**Figure 4**: Correlation heatmap for Patient 3 across plates.
+
+```{r}
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12363") |> 
+  select(Plate, OlinkID, NPX) |> 
+  pivot_wider(names_from = OlinkID, values_from = NPX) |> 
+  column_to_rownames("Plate") |> 
+  t() |> 
+  cor(method = "spearman")|> 
+  pheatmap() |> 
+  as.ggplot()
+
+#ggsave(savepath("p3_heatmap.png"), h = 8, w = 8)
+```
+
+
+**Figure 5**: Scatterplots showing pairwise correlations between plates for Patient 2.
+
+```{r warning=FALSE, message=FALSE}
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12362") |> 
+  select(Plate, OlinkID, NPX) |> 
+  pivot_wider(names_from = Plate, values_from = NPX) |> 
+  ggpairs(c(2:13),
+            lower = list(continuous = "points", size = 0.05)) +
+  ggtitle("Correlation for Patient 2 measurements across plates") 
+
+#ggsave(savepath("p2_plate_scatterplots.png"), h = 10, w = 10)
+```
+
+**Figure 6**: Scatterplots showing pairwise correlations between plates for Patient 3.
+
+```{r warning=FALSE, message=FALSE}
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12363") |> 
+  select(Plate, OlinkID, NPX) |> 
+  pivot_wider(names_from = Plate, values_from = NPX) |> 
+  ggpairs(c(2:13),
+            lower = list(continuous = "points", size = 0.5)) +
+  ggtitle("Correlation for Patient 3 measurements across plates")
+
+#ggsave(savepath("p3_plate_scatterplots.png"), h = 10, w = 10)
+```
+
+### Correlation excluding proteins below LOD
+
+This section refines the **correlation analysis by excluding proteins that fall below the LOD across all replicates**. This step ensures a cleaner analysis focusing only on reliably measured proteins.
+
+```{r warning=FALSE, message=FALSE}
+exclude_proteins <- 
+  data_ht_lod |> 
+  filter(DAid %in% control_samples) |> 
+  mutate(under_LOD = ifelse(NPX < LOD, "Yes", "No")) |> 
+  group_by(Assay) |> 
+  count(under_LOD) |> 
+  filter(under_LOD == "Yes") |> 
+  ungroup() |> 
+  filter(n > length(unique(data_ht$PlateID)))
+```
+
+**Figure 7**: Heatmaps of correlations for Patient 2 measurements (filtered for proteins above LOD).
+
+```{r}
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12362",
+         !Assay %in% exclude_proteins$Assay) |> 
+  select(Plate, OlinkID, PCNormalizedNPX) |> 
+  pivot_wider(names_from = OlinkID, values_from = PCNormalizedNPX) |> 
+  column_to_rownames("Plate") |> 
+  t() |> 
+  cor(method = "spearman")|> 
+  pheatmap() |> 
+  as.ggplot()
+
+#ggsave(savepath("p2_subset_heatmap.png"), h = 8, w = 8)
+```
+
+**Figure 8**: Heatmaps of correlations for Patient 3 measurements (filtered for proteins above LOD).
+
+```{r}
+data_ht |> 
+  left_join(id_mapping, by = "SampleID") |> 
+  filter(DAid == "DA12363",
+         !Assay %in% exclude_proteins$Assay) |> 
+  select(Plate, OlinkID, NPX) |> 
+  pivot_wider(names_from = OlinkID, values_from = NPX) |> 
+  column_to_rownames("Plate") |> 
+  t() |> 
+  cor(method = "spearman")|> 
+  pheatmap() |> 
+  as.ggplot()
+
+#ggsave(savepath("p3_subset_heatmap.png"), h = 8, w = 8)
+```
+
+
+## Remove control assays & samples
+
+In this step, we **filter out control assays and samples** that are not part of the main dataset. This ensures clean data for downstream analyses.
+
+```{r}
+data_step_1 <- 
+  data_ht_lod |> 
+  filter(!SampleType %in% control_sample_types,
+         !DAid %in% control_samples, # Remove internal KTH controls
+         !AssayType %in% control_assay_types) |>
+  select(DAid, Assay, OlinkID, UniProt, Panel, Block, Plate, Count, ExtNPX, NPX, PCNormalizedNPX, AssayQC, SampleQC, LOD) |> 
+  mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No"))
+```
+
+
+# Step 2: QC warnings
+
+In this step, we assess **quality control (QC) warnings at the sample and protein levels**. Samples or protein measurements flagged with warnings will be excluded based on predefined thresholds.
+
+## Percentage of QC warnings per sample
+We calculate the number of QC warnings per sample, with a focus on those that do not pass QC.
+
+**Figure 9**: Barplot showing the number of QC warnings for each sample, colored by cohort.
+
+```{r}
+data_step_1 |> 
+  group_by(DAid) |> 
+  count(SampleQC) |> 
+  filter(!SampleQC %in% c("NA", "PASS")) |> 
+  arrange(-n) |> 
+  left_join(manifest, by = "DAid") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggplot(aes(fct_reorder(DAid, -n), n, fill = Cohort)) +
+  geom_col() +
+  scale_fill_manual(values = brewer.pal(n = 11, name = "Set3")) +  
+  geom_hline(yintercept = 5440/2, linetype = "dashed", color = "grey") +
+  theme_hpa(angled = T) +
+  xlab("Sample") +
+  theme(axis.text.x = element_text(size = 5),
+        axis.ticks.x = element_blank()) +
+  ggtitle("Samples with QC warnings") 
+
+
+ggsave(savepath("samples_qc_batch2.png"), h = 4, w = 10)
+
+data_step_1 |> 
+  group_by(DAid) |> 
+  count(SampleQC) |> 
+  filter(!SampleQC %in% c("NA", "PASS")) |> 
+  arrange(-n) |> 
+  left_join(manifest, by = "DAid") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggplot(aes(fct_reorder(DAid, -n), n, fill = SampleQC)) +
+  geom_col() +
+  geom_hline(yintercept = 5440/2, linetype = "dashed", color = "grey") +
+  theme_hpa(angled = T) +
+  xlab("Sample") +
+  theme(axis.text.x = element_text(size = 5),
+        axis.ticks.x = element_blank()) +
+  ggtitle("Samples with QC warnings") 
+
+ggsave(savepath("samples_qc_2_batch2.png"), h = 4, w = 10)
+```
+
+**Figure 10**: Beeswarm plot showing the number of proteins passing QC for each sample.
+
+```{r}
+data_step_1 |> 
+  group_by(DAid) |> 
+  filter(SampleQC == "PASS") |>
+  count(SampleQC) |> 
+  left_join(manifest, by = "DAid") |> 
+  filter(Cohort != "CTRL") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggplot(aes(Cohort, n, color = Cohort)) +
+  geom_quasirandom() +
+  geom_hline(yintercept = n_proteins / 2, color = "grey40", linetype = "dashed") +
+ # geom_text_repel(aes(label = DAid), show.legend = F) +
+  scale_color_manual(values = pal_phase2) +
+  theme_hpa(angled = T) +
+  ggtitle("Number of proteins that pass QC per sample")
+
+ggsave(savepath("samples_pass_batch2.png"), h = 8, w = 8)
+```
+
+
+## Samples with > 50% QC warnings
+
+This analysis identifies samples with more than 50% of proteins flagged with QC warnings, which will be excluded from further analysis.
+
+```{r}
+samples_high_warnings <- 
+  data_step_1 |> 
+  group_by(DAid) |> 
+  count(SampleQC) |> 
+  filter(SampleQC == "FAIL") |> 
+  mutate(perc_warning = n / n_proteins) |> 
+  filter(perc_warning > 0.5) 
+```
+
+In the current dataset, the **number of samples with > 50% warnings is: `r nrow(samples_high_warnings)`**.
+
+These samples will be excluded from further analysis.
+
+## Remove individual sample QC warnings
+
+In this step, we **filter out the samples identified in the previous step that have more than 50% QC warnings**. Additionally, we **remove protein measurements that failed QC**. Since the data is in long format, this step will not introduce any NAs. However, when the data is reshaped into a wide format, missing values may be introduced.
+
+```{r}
+data_step_2 <- 
+  data_step_1 |> 
+  filter(SampleQC == "PASS",
+         !DAid %in% samples_high_warnings$DAid) |>
+  select(-SampleQC)
+```
+
+# Step 3: Assay warnings
+
+In this step, we evaluate **quality control (QC) warnings at the assay level**. Assays with a high percentage of warnings will be flagged and excluded from the dataset based on a predefined threshold to ensure data reliability.
+
+**Figure 11**: Bar plot showing the number of assays with warnings across different assays.
+
+```{r}
+data_step_2 |>
+  group_by(Assay) |> 
+  count(AssayQC) |> 
+  filter(!AssayQC %in% c("NA", "PASS")) |> 
+  arrange(-n) |> 
+  ggplot(aes(fct_reorder(Assay,-n), n)) +
+  geom_col() +
+  geom_text(aes(label = n), vjust = -0.5) +
+  theme_hpa(angle = T) +
+  xlab("Assay")
+
+ggsave(savepath("assay_qc_batch2.png"), h = 5, w = 10)
+
+assays_high_warnings <- 
+  data_step_2 |> 
+  filter(!DAid %in% control_samples) |> 
+  group_by(Assay) |> 
+  mutate(n_total = n_distinct(DAid)) |> 
+  filter(AssayQC == "WARN") |> 
+  mutate(n = n_distinct(DAid)) |> 
+  ungroup() |> 
+  distinct(Assay, n, n_total) |> 
+  mutate(perc_warning = n / n_total) |> arrange(-n) |> 
+  filter(perc_warning > 0.5) 
+```
+
+In the current dataset, the number of **assays with > 50% warnings is: `r nrow(assays_high_warnings)`**.  
+
+These assays will be excluded from further analysis.
+
+```{r}
+data_step_3 <- 
+  data_step_2 |> 
+  filter(!Assay %in% assays_high_warnings$Assay) |>
+  select(-AssayQC)
+```
+
+# Protein detectability
+
+```{r}
+
+sample_detected_proteins <- 
+  data_step_3 |> 
+  filter(above_LOD == "Yes") |> 
+  count(DAid)
+
+sample_detected_proteins |> 
+  left_join(manifest, by = "DAid") |> 
+  ggplot(aes(Cohort, n, fill = Cohort, color = Cohort)) +
+  geom_quasirandom() +
+  geom_boxplot(outlier.color = NA, alpha = 0.5, color = "black") +
+  scale_fill_manual(values = brewer.pal(n = 11, name = "Set3")) +  
+  scale_color_manual(values = brewer.pal(n = 11, name = "Set3")) +  
+  theme_hpa(angled = T)
+
+disease_order <- 
+  manifest |> 
+  mutate(Disease = ifelse(Disease == "Healthy", paste(Disease, Cohort, sep = " - "), Disease)) |> 
+  filter(DAid %in% data_step_3$DAid) |> 
+  distinct(Disease, Cohort, Class) |> 
+  arrange(desc(Cohort))
+
+sample_detected_proteins |> 
+  left_join(manifest, by = "DAid") |> 
+#  mutate(Disease = ifelse(Disease == "Healthy", paste(Disease, Cohort, sep = " - "), Disease),
+ #        Disease = factor(Disease, levels = disease_order$Disease)) |> 
+  ggplot(aes(Disease, n, fill = Cohort, color = Cohort)) +
+  geom_quasirandom() +
+  geom_boxplot(outlier.color = NA, alpha = 0.5, color = "black") +
+  scale_fill_manual(values = brewer.pal(n = 11, name = "Set3")) +  
+  scale_color_manual(values = brewer.pal(n = 11, name = "Set3")) +  
+  theme_hpa(angled = T)
+
+```
+
+# Step 4: Outlier exploration
+
+In this step, we use **PCA and UAMP to explore potential outliers in the dataset**. By visualizing the data in lower dimensions, we can identify samples that may behave differently from the rest and may need further investigation or exclusion.
+
+
+```{r}
+# Prepare data
+input_data <- 
+  data_step_3 |>
+  select(DAid, OlinkID, NPX) |>
+  pivot_wider(names_from = "OlinkID", values_from = "NPX")
+
+# Exclude protens below LOD in 50% of control measurements
+exclude_proteins <- 
+  data_ht_lod |> 
+  filter(DAid %in% control_samples) |> 
+  mutate(under_LOD = ifelse(NPX < LOD, "Yes", "No")) |>
+  group_by(Assay) |> 
+  count(under_LOD) |> 
+  filter(under_LOD == "Yes") |> 
+  ungroup() |> 
+  filter(n >= sum(!is.na(unique(data_ht_lod$Plate))))
+
+input_data_filt <- 
+  data_step_3 |>
+  filter(!Assay %in% exclude_proteins$Assay) |> 
+  select(DAid, OlinkID, NPX) |>
+  pivot_wider(names_from = "OlinkID", values_from = "NPX")
+```
+
+
+## PCA
+
+
+**Figure 15**: PCA visualization based on all proteins, where samples are colored by cohort.
+
+```{r}
+pca_all_proteins <-
+  do_pca(data = input_data,
+          plots = F)
+
+pca_all_proteins$pca_res |>
+  rename(DAid = Sample) |>
+  left_join(manifest, by = "DAid") |>
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggplot(aes(PC1, PC2, color = Class)) +
+  geom_point(alpha = 0.7, size = 0.8) +
+  scale_color_manual(values = pal_class_2) +
+  theme_hpa() 
+
+#ggsave(savepath("pca.png"), h = 8, w = 8)
+
+# ids <- 
+#   pca_all_proteins$pca_res  |> 
+#   filter(PC2 < -70)
+
+# manifest |> 
+#   filter(DAid %in% ids$Sample) |> 
+#   select(`PI - sample owner`,  Cohort)
+```
+
+
+We identify the PCA outliers and remove them from the dataset.
+
+```{r}
+pca_outliers <-
+  pca_all_proteins$pca_res |>
+  filter(PC2 < -70) |>
+  distinct(Sample)
+
+data_step_4 <-
+  data_step_3 |>
+  filter(!DAid %in% pca_outliers$Sample)
+```
+
+**Figure 16**: PCA visualization based on all proteins and number of proteins detected per cohort, highlighting ourliers.
+
+```{r}
+plot_pca <- 
+  pca_all_proteins$pca_res |>
+  rename(DAid = Sample) |>
+  left_join(manifest, by = "DAid") |>
+  mutate(Outlier = ifelse(DAid %in% pca_outliers$Sample, "Yes", "No")) |>
+  ggplot(aes(PC1, PC2, color = Outlier)) +
+  geom_point(alpha = 0.7, size = 0.8) +
+  scale_color_manual(values = c("Yes" = "red", "No" = "grey")) +
+  theme_hpa() 
+
+missing_per_sample <- 
+  data_ht_lod |> 
+  filter(SampleType == "SAMPLE") |> 
+  mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No")) |> 
+  group_by(DAid) |> 
+  count(above_LOD) |> 
+  filter(above_LOD == "Yes") |> 
+  arrange(n)
+
+plot_n <- 
+  missing_per_sample |> 
+  left_join(manifest, by = "DAid") |> 
+  filter(!Cohort %in% c("BDG2", "CTRL")) |> 
+  mutate(Outlier = ifelse(DAid %in% pca_outliers$Sample, "Yes", "No")) |>
+  ggplot(aes(Cohort, n)) +
+  geom_quasirandom(aes(color = Outlier)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+  scale_color_manual(values = c("grey", "red")) +
+  theme_hpa() +
+  ggtitle("Number of detected proteins per sample")
+
+plot_pca + plot_n 
+
+#ggsave(savepath("pca_outliers.png"), h = 5, w = 12)
+```
+
+
+
+**Figure 17**: PCA visualization based on proteins with high detectability, where samples are colored by cohort.
+
+```{r}
+pca_high_detectability <-
+  do_pca(data = input_data_filt,
+         plots = F)
+
+pca_high_detectability$pca_res |>
+  rename(DAid = Sample) |>
+  left_join(manifest, by = "DAid") |>
+  mutate(Outlier = ifelse(DAid %in% pca_outliers$Sample, "Yes", "No")) |>
+  ggplot(aes(PC1, PC2, color = Outlier)) +
+  geom_point(alpha = 0.7, size = 0.8) +
+  scale_color_manual(values = c("grey", "red")) +
+  theme_hpa() +
+  ggtitle("Proteins with high detectability")
+
+#ggsave(savepath("pca_high_detectability.png"), h = 8, w = 8)
+```
+
+
+## UMAP
+
+**Figure 18**: UMAP visualization based on all proteins, where samples are colored by cohort.
+
+```{r}
+umap_all_proteins <-
+  do_umap(data = input_data,
+          plots = F)
+
+umap_all_proteins |>
+  rename(DAid = Sample) |>
+  left_join(manifest, by = "DAid") |>
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggplot(aes(UMAP1, UMAP2, color = Class)) +
+  geom_point(alpha = 0.7, size = 0.8) +
+  scale_color_manual(values = pal_class_2) +
+  theme_hpa() +
+  ggtitle("All proteins")
+
+umap_all_proteins |>
+  rename(DAid = Sample) |>
+  left_join(manifest, by = "DAid") |>
+  left_join(sample_detected_proteins, by = "DAid") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggplot(aes(UMAP1, UMAP2, color = Class)) +
+  geom_point(alpha = 0.7, size = 0.8) +
+  #scale_color_manual(values = pal_class_2) +
+#  scale_color_viridis_c() +
+  theme_hpa() +
+  ggtitle("All proteins")
+
+
+umap_all_proteins |>
+  rename(DAid = Sample) |>
+  left_join(manifest, by = "DAid") |>
+  left_join(sample_detected_proteins, by = "DAid") |> 
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggplot(aes(UMAP1, UMAP2, color = Disease)) +
+  geom_point(alpha = 0.7, size = 0.8) +
+  #scale_color_manual(values = pal_class_2) +
+  #scale_color_viridis_c() +
+  theme_hpa() +
+  ggtitle("All proteins")
+
+ggsave(savepath("umap_b2.png"), h = 5, w = 10)
+
+ggsave(savepath("umap_b2_outliers.png"), h = 8, w = 8)
+umap_outliers <-
+  umap_all_proteins |> 
+  filter(UMAP2 > 5) |> 
+  rename(DAid = Sample) |> 
+  left_join(manifest, by = "DAid") 
+```
+
+### Explore
+
+```{r}
+meta_outlier <- 
+  umap_all_proteins |> 
+  mutate(Outlier = ifelse(UMAP1 < -2.5, "Yes", "No")) |> 
+  select(DAid = Sample, Disease = Outlier) |> 
+  mutate(Age = NA, Sex = NA, BMI = NA)
+
+data_outlier <- 
+  data_step_3 |> 
+  select(DAid, Assay, NPX) |> 
+  filter(DAid %in% meta_outlier$DAid) |> 
+  pivot_wider(names_from = Assay, values_from = NPX) 
+
+source("../scripts/functions/functions_analyses.R")
+de_outlier <- 
+  do_limma_disease(data_wide = data_outlier, 
+                 metadata = meta_outlier,
+                 disease = "Yes", 
+                 correct = F,
+                 cutoff = 0.5)
+
+plot_volcano(de_outlier)
+ggsave(savepath("volcano_outliers.png"), h = 5, w = 5)
+
+top10 <- 
+  de_outlier |> 
+  filter(sig != "not significant") |> 
+  head(12)
+
+data_step_3 |> 
+  filter(Assay %in% top10$Assay) |> 
+  left_join(manifest, by = "DAid") |> 
+  left_join(umap_all_proteins |> 
+              rename(DAid = Sample) |> 
+              mutate(Outlier = ifelse(UMAP1 < -2.5, "Yes", "No")), by = "DAid") |> 
+  #count(Outlier, Assay) |> 
+  #filter(Outlier == "Yes")
+  mutate(Assay = factor(Assay, levels = top10$Assay)) |>
+  ggplot(aes(Cohort, NPX, color = Outlier)) +
+  geom_quasirandom() +
+  # geom_boxplot(show.legend = F, 
+  #              outlier.color = NA,
+  #              fill = NA,
+  #              color = "black") +
+  facet_wrap(~Assay, scales = "free_y") +
+  theme_hpa(angled = T)
+
+
+ggsave(savepath("DE_proteins_UMAP.png"), h = 6, w = 10)
+
+
+# Look at this proteins in other batch 
+b4 <- 
+  read_tsv(file = "../data/final_data/data_phase2_batch4_curated_20250425.tsv") 
+
+b4 |> 
+  filter(Assay %in% top10$Assay) |> 
+  left_join(manifest, by = "DAid") |> 
+  mutate(Assay = factor(Assay, levels = top10$Assay)) |>
+  ggplot(aes(Cohort, NPX, color = Cohort)) +
+  geom_quasirandom() +
+  # geom_boxplot(show.legend = F, 
+  #              outlier.color = NA,
+  #              fill = NA,
+  #              color = "black") +
+  facet_wrap(~Assay, scales = "free_y") +
+  theme_hpa(angled = T)
+
+
+library(clusterProfiler)
+library(org.Hs.eg.db)
+
+# Your input gene list (Entrez IDs or gene symbols)
+genes_of_interest <- 
+  de_outlier |> 
+  filter(sig != "not significant") |> 
+  pull(Assay)
+
+genes_all <- 
+  de_outlier |> 
+  pull(Assay)
+
+# Convert gene symbols to Entrez IDs
+gene_ids <- bitr(genes_of_interest, fromType = "UNIPROT",
+                 toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+
+universe <- bitr(genes_all, fromType = "SYMBOL",
+                 toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+
+# Perform GO enrichment analysis (Biological Process)
+ego <- enrichGO(gene         = gene_ids$ENTREZID,
+                universe     = universe$ENTREZID,
+                OrgDb        = org.Hs.eg.db,
+                ont          = "BP",   # "BP", "CC", or "MF"
+                pAdjustMethod = "BH",
+                pvalueCutoff  = 0.05,
+                qvalueCutoff  = 0.2,
+                readable      = TRUE)
+
+# View results
+head(ego)
+
+# Optional: Plot top terms
+barplot(ego, showCategory=10) + 
+  theme_hpa() +
+  scale_fill_viridis_c(option = "E")
+
+ggsave(savepath("GO_enrichment_UMAP.png"), h = 4, w = 6)
+
+outliers <- 
+  outlier_data |> 
+  filter(Disease == "Yes") |> 
+  select(DAid) |> 
+  left_join(manifest)
+
+
+id_mapping |> 
+  filter(DAid %in% outliers$DAid) |> 
+  left_join(
+    data_ht |> 
+      distinct(SampleID, WellID)) |> 
+  arrange(Plate)
+
+#"147 outliers"
+```
+
+**Figure 19**: UMAP visualization based on all proteins and number of proteins detected per cohort, highlighting ourliers.
+
+```{r}
+plot_umap <- 
+  umap_all_proteins |>
+  rename(DAid = Sample) |>
+  left_join(manifest, by = "DAid") |>
+  mutate(Outlier = ifelse(DAid %in% umap_outliers$DAid, "Yes", "No")) |>
+  ggplot(aes(UMAP1, UMAP2, color = Outlier)) +
+  geom_point(alpha = 0.7, size = 0.8) +
+  scale_color_manual(values = c("Yes" = "red", "No" = "grey")) +
+  theme_hpa() 
+
+plot_n <- 
+  missing_per_sample |> 
+  left_join(manifest, by = "DAid") |> 
+  filter(!Cohort %in% c("BDG2", "CTRL")) |> 
+  mutate(Outlier = ifelse(DAid %in% umap_outliers$DAid, "Yes", "No")) |>
+  ggplot(aes(Cohort, n)) +
+  geom_quasirandom(aes(color = Outlier)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+  scale_color_manual(values = c("grey", "red")) +
+  theme_hpa() +
+  ggtitle("Number of detected proteins per sample")
+
+plot_umap + plot_n 
+
+#ggsave(savepath("umap_outliers.png"), h = 5, w = 12)
+```
+
+
+**Figure 20**: UMAP visualization based on proteins with high detectability, where samples are colored by cohort.
+
+```{r}
+umap_high_detectability <-
+  do_umap(data = input_data_filt,
+          plots = F)
+
+umap_high_detectability |>
+  rename(DAid = Sample) |>
+  left_join(manifest, by = "DAid") |>
+  mutate(Outlier = ifelse(DAid %in% umap_outliers$DAid, "Yes", "No")) |>  
+  ggplot(aes(UMAP1, UMAP2, color = Outlier)) +
+  geom_point(alpha = 0.7, size = 0.8) +
+  scale_color_manual(values = c("Yes" = "red", "No" = "grey")) +
+  theme_hpa() +
+  ggtitle("Proteins with high detectability") 
+
+#ggsave(savepath("umap_high_detectability.png"), h = 8, w = 8)
+```
+
+```{r}
+# Final check PSC1
+# 
+# umap_high_detectability |>
+#   rename(DAid = Sample) |>
+#   left_join(manifest, by = "DAid") |>
+#   mutate(Outlier = ifelse(DAid %in% umap_outliers$DAid, "Yes", "No")) |>  
+#   ggplot(aes(UMAP1, UMAP2, color = Outlier)) +
+#   geom_point(alpha = 0.7, size = 0.8) +
+#   scale_color_manual(values = c("Yes" = "red", "No" = "grey")) +
+#   theme_hpa() +
+#   ggtitle("Proteins with high detectability") +
+# 
+# umap_high_detectability |>
+#   rename(DAid = Sample) |>
+#   left_join(manifest, by = "DAid") |>
+#   ggplot(aes(UMAP1, UMAP2, color = Cohort)) +
+#   geom_point(alpha = 0.7, size = 0.8) +
+#   scale_fill_manual(values = brewer.pal(n = 11, name = "Set3")) +  
+#   theme_hpa() +
+#   ggtitle("Proteins with high detectability")
+# 
+# 
+# data_umap_highdetectability <- 
+#   data_step_5 |>
+#   filter(!Assay %in% exclude_proteins$Assay)
+# 
+# data_umap_highdetectability
+# 
+# missing_per_sample <- 
+#   data_umap_highdetectability |> 
+#   mutate(above_LOD = ifelse(NPX > LOD, "Yes", "No")) |> 
+#   group_by(DAid) |> 
+#   count(above_LOD) |> 
+#   filter(above_LOD == "Yes") |> 
+#   arrange(n)
+# 
+# #plot_n <- 
+# missing_per_sample |> 
+#   left_join(manifest) |> 
+#   filter(!Cohort %in% c("BDG2", "CTRL")) |> 
+#   mutate(Outlier_PCA = ifelse(DAid %in% pca_outliers$Sample, "Yes", "No")) |>
+#   ggplot(aes(Cohort, n)) +
+#   geom_quasirandom(aes(color = Outlier_PCA)) +
+#   geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+#   scale_color_manual(values = c("grey", "red")) +
+#   theme_hpa() +
+#   ggtitle("Number of detected proteins per sample")
+# 
+# new_umap_outliers <- 
+#   umap_high_detectability |> 
+#   filter(UMAP2 < 2.5, UMAP1 < -8)
+# 
+# umap_high_detectability |>
+#   rename(DAid = Sample) |>
+#   left_join(manifest, by = "DAid") |>
+#   mutate(Outlier = ifelse(DAid %in% new_umap_outliers$Sample, "Yes", "No")) |>  
+#   ggplot(aes(UMAP1, UMAP2, color = Outlier)) +
+#   geom_point(alpha = 0.7, size = 0.8) +
+#   scale_color_manual(values = c("Yes" = "red", "No" = "grey")) +
+#   theme_hpa() +
+#   ggtitle("Proteins with high detectability") +
+# 
+# missing_per_sample |> 
+#   left_join(manifest) |> 
+#   filter(!Cohort %in% c("BDG2", "CTRL")) |> 
+#   mutate(Outlier_new_UMAP = ifelse(DAid %in% new_umap_outliers$Sample, "Yes", "No")) |>
+#   ggplot(aes(Cohort, n)) +
+#   geom_quasirandom(aes(color = Outlier_new_UMAP)) +
+#   geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+#   scale_color_manual(values = c("grey", "red")) +
+#   theme_hpa() +
+#   ggtitle("Number of detected proteins per sample")
+```
+
+# Final UMAP 
+
+Finally, we look at a UMAP of the final dataset after outlier exclusion.
+
+**Figure 20**: UMAP visualization based on the final dataset.
+
+```{r}
+umap_final <- 
+  do_umap(data = data_step_4,
+          wide = F,
+          plots = F)
+
+umap_final |>
+  rename(DAid = Sample) |>
+  left_join(manifest, by = "DAid") |>
+  mutate(Cohort = paste(Cohort, `PI - sample owner`, sep = "_")) |>
+  ggplot(aes(UMAP1, UMAP2, color = Cohort)) +
+  geom_point(alpha = 0.7, size = 0.8) +
+  scale_color_manual(values = brewer.pal(n = 11, name = "Set3")) +  
+  theme_hpa() +
+  ggtitle("Final UMAP")
+
+# umap_final |> filter(UMAP1 < -4.3) |> 
+#   rename(DAid = Sample) |> 
+#   left_join(manifest)
+# 
+# umap_final |>
+#   rename(DAid = Sample) |>
+#   left_join(manifest, by = "DAid") |>
+#   mutate(Disease = ifelse(Cohort == "PSC1", Disease, NA)) |> 
+#   ggplot(aes(UMAP1, UMAP2, color = Disease)) +
+#   geom_point(alpha = 0.7, size = 0.8) +
+#   #scale_color_manual(values = brewer.pal(n = 11, name = "Set3")) +  
+#   theme_hpa() +
+#   ggtitle("Final UMAP")
+
+```
+
+
+
+# Save final data
+
+After completing the quality control and data curation steps, we **save the cleaned and processed dataset for sharing with collaborators and for further downstream analysis**. This final dataset is ready for use in subsequent phases of the project.
+
+```{r}
+data_step_4 <- 
+  data_step_3
+
+curated_data <- 
+  data_step_4 |> 
+  select(-Count,	-ExtNPX, -PCNormalizedNPX) # Remove unnecessary columns
+
+write_tsv(curated_data, file = "../data/final_data/data_phase2_batch2_curated_20250512.tsv") 
+```
+
