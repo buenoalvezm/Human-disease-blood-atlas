@@ -1,6 +1,6 @@
 # Olink Data Preprocessing – Human Disease Blood Atlas
 
-This internal repository is used to track the preprocessing and data preparation steps for the Olink proteomics data included in the Human Disease Blood Atlas.
+This internal repository is used to track the **preprocessing and data preparation steps for the Olink proteomics data** included in the **Human Disease Blood Atlas**.
 
 The repository includes:
 - Preprocessing scripts for NPX data
