@@ -663,6 +663,6 @@ umap_all_proteins |>
 After completing the quality control and data curation steps, we **save the cleaned and processed dataset for sharing with collaborators and for further downstream analysis**. This final dataset is ready for use in subsequent phases of the project.
 
 ```{r}
-write_tsv(data_step_6, file = "data/final_data/data_phase2_batch2_curated_20250127.tsv") 
+write_tsv(data_step_6, file = "data/final_data/data_phase2_batch3_curated_20250127.tsv") 
 ```
 
