@@ -14,3 +14,10 @@ data_bamse <- read_tsv("data/final_data/HPA/v24_2/bamse_data_ht_phase2.tsv")
 data_bamse |> 
   distinct(Assay, OlinkID, UniProt) |> 
   write_tsv("data/olink_uniprot_mapping_ht.tsv")
+
+
+data_ht <- read_tsv("data/final_data/data_phase2_batch1_raw_20241217.tsv")
+
+data_ht |> 
+  distinct(Assay, OlinkID, UniProt, Panel) |> 
+  write_tsv("data/olink_uniprot_mapping_ht.tsv")
