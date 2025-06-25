@@ -41,13 +41,13 @@ library(arrow)
 library(OlinkAnalyze)
 
 # Read internal functions
-source("../scripts/functions/functions_utility.R")
-source("../scripts/functions/functions_visualization.R")
-source("../scripts/functions/themes_palettes.R")
+source("scripts/functions/functions_utility.R")
+source("scripts/functions/functions_visualization.R")
+source("scripts/functions/themes_palettes.R")
 
 # Load Olink NPX data and LIMS manifest
-data_ht <-read_NPX("../data/VL-3530-B2/VL-3530_B2_NPX_2025-05-08.parquet")
-manifest <- import_df("../data/samples_2025-05-12.xlsx")
+data_ht <-read_NPX("data/VL-3530-B2/VL-3530_B2_NPX_2025-05-08.parquet")
+manifest <- import_df("data/samples_2025-05-12.xlsx")
 ```
 
 ```{r}
@@ -117,7 +117,7 @@ n_samples <-
 data_ht_lod <- olink_lod(data = data_hdba, lod_method = "NCLOD")
 
 ## Save raw data - including LOD calculation
-write_tsv(data_ht_lod, file = "../data/final_data/data_phase2_batch2_raw_20250512.tsv")
+write_tsv(data_ht_lod, file = "data/final_data/data_phase2_batch2_raw_20250624.tsv")
 ```
 
 
