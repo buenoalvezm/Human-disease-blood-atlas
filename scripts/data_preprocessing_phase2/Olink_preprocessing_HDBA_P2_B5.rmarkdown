@@ -485,6 +485,12 @@ disease_order <-
   distinct(Disease, Cohort, Class) |> 
   arrange(desc(Cohort))
 
+sample_detected_proteins <- 
+  data_step_3 |> 
+  filter(above_LOD == "Yes") |> 
+  group_by(DAid) |> 
+  count()
+
 sample_detected_proteins |> 
   left_join(manifest, by = "DAid") |> 
   mutate(Disease = ifelse(Disease == "Healthy", paste(Disease, Cohort, sep = " - "), Disease),
