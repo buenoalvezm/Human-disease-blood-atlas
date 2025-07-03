@@ -247,6 +247,59 @@ plot_plate_distribution <-
     return(plot)
   }
 
+plot_NPX_missingness <- 
+  function(plot_data, 
+           plot_title,
+           samples = NULL,
+           save_plot = NULL) {
+    
+    
+    if (!is.null(samples)) {
+      plot_data_filt <- 
+        plot_data |> 
+        separate(SampleID, into = c("DAid", "Batch", "Plate"), sep = "-", remove = F) |> 
+        filter(DAid %in% samples)
+      
+      plot <- 
+        plot_data_filt |> 
+        mutate(NPX_NA = ifelse(is.na(NPX), "Yes", "No"),
+               Block = paste("Block", Block)) |> 
+        count(DAid, PlateID, NPX_NA, Block) |>
+        ggplot(aes(PlateID, n, fill = NPX_NA)) +
+        geom_col() +
+        facet_grid(Block~DAid, scales = "free_y") +
+        scale_fill_manual(values = c("Yes" = "darkred", "No" = "grey")) +
+        theme_hpa(angled = T) +
+        ggtitle(plot_title)
+      
+    } else {
+      plot <- 
+        plot_data |> 
+        mutate(NPX_NA = ifelse(is.na(NPX), "Yes", "No"),
+               Block = paste("Block", Block)) |> 
+        count(PlateID, NPX_NA, Block) |>
+        ggplot(aes(PlateID, n, fill = NPX_NA)) +
+        geom_col() +
+        facet_wrap(~Block, ncol = 1, scales = "free_y") +
+        scale_fill_manual(values = c("Yes" = "darkred", "No" = "grey")) +
+        theme_hpa(angled = T) +
+        ggtitle(plot_title)
+      
+    }
+    
+    if (!is.null(save_plot)) {
+      ggsave(savepath(paste0(save_plot, ".png")),
+             plot,
+             height = 8,
+             width = 8)
+    }
+    
+    return(plot)
+    
+  }
+
+
+
 plot_qc_warnings <-
   function(plot_data,
            plot_type,
@@ -420,7 +473,7 @@ plot_patient_heatmap <-
         pivot_wider(names_from = OlinkID, values_from = NPX) |>
         column_to_rownames("Plate") |>
         t() |>
-        cor(method = "spearman") |>
+        cor(method = "spearman", use = "complete.obs") |>
         pheatmap()
       
     } else {
@@ -436,7 +489,7 @@ plot_patient_heatmap <-
         pivot_wider(names_from = OlinkID, values_from = NPX) |>
         column_to_rownames("ID") |>
         t() |>
-        cor(method = "spearman") |>
+        cor(method = "spearman", use = "complete.obs") |>
         pheatmap(
           annotation_row  = ann,
           show_colnames = F,
