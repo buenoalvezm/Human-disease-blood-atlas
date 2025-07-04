@@ -103,6 +103,7 @@ generate_qc_params <-
     disease_order <- 
       manifest_filtered |> 
       mutate(Disease = ifelse(Disease == "Healthy", paste(Disease, Cohort, sep = " - "), Disease)) |> 
+      filter(!is.na(Disease)) |> 
       distinct(Disease, Cohort, Class) |> 
       arrange(desc(Cohort))
     
@@ -437,7 +438,7 @@ plot_sample_detectability <-
       left_join(qc$manifest_filtered, by = "DAid") |>
       mutate(
         Disease = ifelse(Disease == "Healthy", paste(Disease, Cohort, sep = " - "), Disease),
-        Disease = factor(Disease, levels = qc$disease_order$Disease)
+        Disease = factor(Disease, levels = unique(qc$disease_order$Disease))
       ) |>
       ggplot(aes(Disease, n, fill = Cohort, color = Cohort)) +
       geom_quasirandom() +
