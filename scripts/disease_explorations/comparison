@@ -1,0 +1,38 @@
+combined_list <- 
+  map_df(list(de_cancer_soma,de_cancer_olink,de_healthy_soma,de_healthy_olink,de_disease_soma,de_disease_olink), function(df) {
+
+ if("AptName" %in% colnames(df)) {
+      df <- 
+        df |> 
+        mutate(Platform = "Somalogic")
+    } else {
+       df <- 
+        df |> 
+        mutate(Platform = "Olink")
+    }
+
+
+  df <- 
+    df |> 
+    filter(sig != "not significant") |> 
+    select(Assay, Control, Platform) |> 
+    distinct()
+
+})
+
+combined_list |> 
+  count(Control, Platform)
+
+
+
+pdf(paste0("results/", disease, "_upset_de.pdf"), h = 6, w = 10)
+combined_list |>
+  mutate(List = paste(Control, Platform, sep = " - ")) |> 
+  group_by(Assay) |>
+  summarise(List = list(unique(List))) |>
+  ggplot(aes(x = List)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label = ..count..), vjust = -1) +
+  scale_x_upset(n_intersections = 20) +
+  theme_hpa()
+dev.off()
