@@ -1,0 +1,26 @@
+---
+title: "Human Disease Blood Atlas Somalogic Data Quality Control"
+author: "María Bueno Álvez"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    keep_md: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+```{r, include=FALSE}
+# Load packages
+library(tidyverse) 
+#source("scripts/functions/themes_palettes.R")
+#source("scripts/functions/functions_utility.R")
+
+# Load data 
+
+```
+
+# Test
